@@ -1,0 +1,108 @@
+/* Reset dan Pengaturan Dasar */
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: #f8fafc;
+    color: #334155;
+    margin: 0;
+    padding: 2rem;
+    line-height: 1.6;
+}
+
+/* Kontainer Utama */
+.main-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    background-color: #ffffff;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+header {
+    text-align: center;
+    margin-bottom: 2rem;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 1.5rem;
+}
+
+h1 {
+    font-family: 'Outfit', sans-serif;
+    color: #0f172a;
+    font-size: 2.5rem;
+}
+
+h2 {
+    font-family: 'Outfit', sans-serif;
+    color: #1e293b;
+    border-bottom: 1px solid #cbd5e1;
+    padding-bottom: 0.5rem;
+    margin-top: 2.5rem;
+}
+
+/* Kontrol Input File */
+.controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    padding: 1rem;
+    background-color: #f1f5f9;
+    border-radius: 6px;
+}
+
+input[type="file"] {
+    font-size: 1rem;
+}
+
+button {
+    padding: 0.5rem 1rem;
+    font-size: 1rem;
+    border: 1px solid #3b82f6;
+    background-color: #3b82f6;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+button:disabled {
+    background-color: #94a3b8;
+    border-color: #94a3b8;
+    cursor: not-allowed;
+}
+
+/* Kontainer Partitur */
+.score-container {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background-color: #ffffff;
+    min-height: 200px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden; /* Mencegah SVG meluap */
+}
+
+.placeholder, .error {
+    color: #94a3b8;
+}
+
+.error {
+    color: #ef4444;
+}
+
+/* Kontainer Output XML */
+.xml-output {
+    background-color: #1e293b;
+    color: #e2e8f0;
+    padding: 1rem;
+    border-radius: 6px;
+    max-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.85rem;
+}
