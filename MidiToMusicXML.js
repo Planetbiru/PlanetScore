@@ -123,12 +123,6 @@ class MidiToMusicXML {
                     !selectedSet.has(i) && (!t.notes || t.notes.length === 0)
                 );
                 parsed.tracks = [...selectedTracks, ...metaTracks];
-
-                console.log(
-                    `[MidiToMusicXML] selectedTrack=${JSON.stringify(opts.selectedTrack)} → ` +
-                    `kept ${selectedTracks.length} melodic + ${metaTracks.length} meta = ` +
-                    `total ${parsed.tracks.length}`
-                );
             }
         }
 
