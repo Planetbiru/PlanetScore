@@ -442,4 +442,26 @@ MidiToMusicXML.convert(buffer, {
 
 ### Mute Channels vs. Playback Mute
 
-The `muteChannels` option affects what is **rendered in the score** (notes from those channels are removed from the MusicXML). This is different from **playback mute**, which is applied at the audio layer (libtimidity) and does not affect the rendered score. In the vocal training app, playback mute is applied via `applyMuteToPlayer()`, while the score always renders all channels.
+**Mute is a playback-only concept.** It does not affect the rendered score in any way.
+
+-   **Playback mute** silences one or more MIDI channels at the audio layer (libtimidity). The notes remain visible in the score — only their sound is suppressed during playback.
+-   **The score always renders all active channels**, regardless of any mute state. This is intentional: the user can silence a part while practicing (e.g., muting the vocal line to sing along) without losing the visual reference of that part.
+
+In the vocal training app, playback mute is applied via `applyMuteToPlayer(mutedChannels)`, which forwards the list of muted channels to the player. The `MusicXMLSVGRenderer` and `MusicXMLPDFRenderer` never see this list, and the underlying MusicXML is not regenerated.
+
+If you need to **remove** a channel from the rendered score entirely (e.g., to produce a piano-only lead sheet), use the `selectedChannels` option instead:
+
+```js
+// Render only channels 0 and 1 in the score
+MidiToMusicXML.convert(buffer, {
+    selectedChannels: [0, 1]
+});
+```
+
+To summarize:
+
+| Concept | Affects Score? | Affects Playback? | Mechanism |
+| --- | --- | --- | --- |
+| Playback mute | No | Yes | Audio layer (libtimidity) |
+| `selectedChannels` | Yes | No (unless player is reloaded) | Score generation (MusicXML) |
+```
