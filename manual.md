@@ -464,4 +464,3 @@ To summarize:
 | --- | --- | --- | --- |
 | Playback mute | No | Yes | Audio layer (libtimidity) |
 | `selectedChannels` | Yes | No (unless player is reloaded) | Score generation (MusicXML) |
-```
