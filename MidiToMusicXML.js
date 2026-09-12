@@ -126,6 +126,42 @@ class MidiToMusicXML {
             }
         }
 
+        const activeChannelsInScore = new Set();
+        parsed.tracks.forEach(t => {
+            if (t.notes) {
+                t.notes.forEach(n => activeChannelsInScore.add(n.channel));
+            }
+        });
+
+        // Determine lyric channel
+        // Priority: opts.lyricChannelId (user-specified, 1-indexed MIDI)
+        //           opts._lyricChannelId (internal, 0-indexed)
+        // Fallback: MIDI channel 4 (index 3), else first active channel
+        let lyricChannelId = -1;
+
+        if (opts.lyricChannelId != null) {
+            // User-specified, treat as 1-indexed MIDI channel
+            const userCh = parseInt(opts.lyricChannelId, 10);
+            if (!isNaN(userCh)) {
+                const idx = userCh - 1;
+                if (activeChannelsInScore.has(idx)) {
+                    lyricChannelId = idx;
+                } else {
+                    // Channel specified but not rendered → disable lyrics
+                    lyricChannelId = -1;
+                }
+            }
+        } else {
+            // Auto-detect: prefer channel 3 (MIDI ch 4)
+            if (activeChannelsInScore.has(3)) {
+                lyricChannelId = 3;
+            } else if (activeChannelsInScore.size > 0) {
+                lyricChannelId = [...activeChannelsInScore].sort((a,b)=>a-b)[0];
+            }
+        }
+
+        opts._lyricChannelId = lyricChannelId;
+
         return this.convertParsed(parsed, opts);
     }
 
@@ -262,12 +298,7 @@ class MidiToMusicXML {
         }
 
         // 2. Identify lyric carrier channel
-        let lyricChannelId = -1;
-        if (activeChannels.includes(3)) { // MIDI channel 4 (0-indexed 3)
-            lyricChannelId = 3;
-        } else if (activeChannels.length > 0) {
-            lyricChannelId = activeChannels[0];
-        }
+        let lyricChannelId = (opts._lyricChannelId != null) ? opts._lyricChannelId : -1;
 
         // Calculate total measures based on max ticks in header or notes
         const maxTicks = parsed.header.maxTicks || 0;

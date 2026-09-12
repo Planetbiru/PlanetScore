@@ -1165,19 +1165,27 @@ class MusicXMLSVGRenderer {
      * @param {string} clefType - The current clef type ('G', 'F', 'C').
      */
     drawKeySignature(x, y, fifths, clefType) {
-        if (!fifths || fifths === 0) return 0; // Return 0 width if no key signature
+        if (!fifths || fifths === 0) return 0;
 
         const scale = this.zoom || 1.0;
         const count = Math.abs(fifths);
 
-        const trebleSharps = [10, 7, 11, 8, 5, 9, 6];
-        const trebleFlats = [6, 9, 5, 8, 4, 7, 3];
-        const bassSharps = [-4, -7, -3, -6, -9, -5, -8];
-        const bassFlats = [-8, -5, -9, -6, -10, -7, -11];
+        // Posisi standar key signature per clef (diatonic index)
+        const trebleSharps = [10, 7, 11, 8, 5, 9, 6];      // F5 C5 G5 D5 A4 E5 B4
+        const trebleFlats  = [6, 9, 5, 8, 4, 7, 3];        // B4 E5 A4 D5 G4 C5 F4
+        const bassSharps   = [-4, -7, -3, -6, -9, -5, -8]; // F3 C3 G3 D3 A2 E3 B2
+        const bassFlats    = [-8, -5, -9, -6, -10, -7, -11]; // B2 E3 A2 D3 G2 C3 F2
+        const altoSharps   = [3, 0, 4, 1, -2, 2, -1];      // F4 C4 G4 D4 A3 E4 B3
+        const altoFlats    = [-1, 2, -2, 1, -3, 0, -4];    // B3 E4 A3 D4 G3 C4 F3
 
-        const positions = fifths > 0
-            ? (clefType === "F" ? bassSharps : trebleSharps)
-            : (clefType === "F" ? bassFlats : trebleFlats);
+        let positions;
+        if (clefType === "F") {
+            positions = fifths > 0 ? bassSharps : bassFlats;
+        } else if (clefType === "C") {
+            positions = fifths > 0 ? altoSharps : altoFlats;
+        } else {
+            positions = fifths > 0 ? trebleSharps : trebleFlats;
+        }
 
         for (let i = 0; i < Math.min(count, positions.length); i++) {
             const diatonic = positions[i];
@@ -1190,7 +1198,7 @@ class MusicXMLSVGRenderer {
             }
         }
 
-        return count * 9 * scale; // Return the width taken by the key signature
+        return count * 9 * scale;
     }
 
     /**
@@ -1788,8 +1796,20 @@ class MusicXMLSVGRenderer {
      * @param {string} clefType - The current clef type.
      */
     drawLedgerLines(x, y, diatonic, clefType) {
-        const lineMin = clefType === "F" ? -10 : 2;
-        const lineMax = clefType === "F" ? -2 : 10;
+        let lineMin, lineMax;
+        if (clefType === "F") {
+            // Bass: G2 (-10) .. A3 (-2)
+            lineMin = -10;
+            lineMax = -2;
+        } else if (clefType === "C") {
+            // Alto: F3 (-4) .. G4 (4)   ← 5 garis paranada alto
+            lineMin = -4;
+            lineMax = 4;
+        } else {
+            // Treble: E4 (2) .. F5 (10)
+            lineMin = 2;
+            lineMax = 10;
+        }
 
         if (diatonic < lineMin) {
             for (let d = lineMin - 2; d >= diatonic; d -= 2) {
@@ -2025,7 +2045,7 @@ class MusicXMLSVGRenderer {
             // Alto/Tenor Clef: middle line = C4 (diatonic 0)
             // C4 should be at y = startY + 2 * lineSpacing
             // Corrected Formula: y = startY + (4 - diatonic) * lineSpacing
-            return startY + (4 - diatonic) * 2 * ls;
+            return startY + (4 - diatonic) * ls;
 
         } else {
             // Treble Clef: bottom line = E4 (diatonic 2)
