@@ -194,4 +194,4 @@ Use a current version of Chrome, Edge, Firefox, or Safari with support for ES6 J
 
 ## License
 
-No license file is currently included in this repository. Add a license before distributing the project outside its intended environment.
+This project is licensed under the **MIT License**.
