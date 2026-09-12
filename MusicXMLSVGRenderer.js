@@ -66,10 +66,10 @@ class MusicXMLSVGRenderer {
         this._systemMetadata = [];
         // Cumulative tick counter (MIDI tick approximation)
         this._cumulativeTick = 0;
-        this.baseStaffSpacing = 40; // gap between staves
-        this.staffSpacing = options.staffSpacing ?? 50;
-        this.partSpacing = options.partSpacing ?? 50;
-        this.systemSpacing = options.systemSpacing ?? 50;
+        this.baseStaffSpacing = 80; // gap between staves
+        this.staffSpacing = options.staffSpacing ?? 80;
+        this.partSpacing = options.partSpacing ?? 80;
+        this.systemSpacing = options.systemSpacing ?? 80;
         this.baseRowSpacingSingle = 150;
         this.baseRowSpacingDouble = 220;
         this.measuresPerLine = 3;

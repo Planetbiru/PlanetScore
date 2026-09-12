@@ -20,9 +20,9 @@ class MusicXMLPDFRenderer {
         this.MARGIN = 40;
 
         this.baseLineSpacing = 8;
-        this.baseStaffSpacing = options.staffSpacing ?? 90;
+        this.baseStaffSpacing = options.staffSpacing ?? 80;
         this.staffSpacing = this.baseStaffSpacing;
-        this.partSpacing = options.partSpacing ?? 65;
+        this.partSpacing = options.partSpacing ?? 80;
         this.systemSpacing = options.systemSpacing ?? 80;
         this.measuresPerLine = 3;
         this.liricYOffset = 60;

@@ -33,6 +33,7 @@ class MidiToMusicXML {
             splitThreshold: 24, // Semitones (2 octaves). 0 to disable.
             splitPoint: null, // e.g., 60 (Middle C). Forces 2-stave split. Overrides splitThreshold.
             splitPoints: null, // e.g., [71, 59]. Forces 3-stave split. Overrides splitPoint.
+            minSplitRange: null,
             forceUpdateEvents: true,
             // ============================================================
             // OPSI BARU: Snap Position & Snap Duration
@@ -272,27 +273,30 @@ class MidiToMusicXML {
                 channelStaves[firstMelodicChannel] = 2;
             }
         } else if (opts.autoSplit && opts.splitThreshold > 0) {
+            const minSplitRange = (opts.minSplitRange != null && opts.minSplitRange >= 0) 
+                ? opts.minSplitRange 
+                : 30; // default 2.5 octaves
+            
             activeChannels.forEach(ch => {
-                // Get the initial instrument program for the channel
+                // Skip drums
+                if (ch === 9) return;
+                
+                const range = channelMaxNote[ch] - channelMinNote[ch];
+                
+                // ⬇️ Hard floor: part dengan rentang < minSplitRange TIDAK akan displit
+                if (range < minSplitRange) return;
+                
                 const progChanges = parsed.header.channelProgramChanges[ch] || [];
                 const initialProgram = progChanges.length > 0 ? progChanges[0].program : 0;
                 
-                // A channel is likely a piano if its program number is between 0 and 7
                 const isPiano = initialProgram >= 0 && initialProgram <= 7;
+                const threshold = isPiano ? 14 : opts.splitThreshold;
+                const threshold3Stave = 48;
 
-                // Use a more sensitive threshold for piano instruments
-                const threshold = isPiano ? 14 : opts.splitThreshold; // Use a sensitive 14 semitones (~1.2 octaves) for piano
-
-                // New: Add a threshold for an extremely wide range to trigger a 3-stave split (e.g., for organ)
-                const threshold3Stave = 48; // 4 octaves
-
-                const range = channelMaxNote[ch] - channelMinNote[ch];
-                if (ch !== 9) { // Don't split drums
-                    if (range >= threshold3Stave) {
-                        channelStaves[ch] = 3;
-                    } else if (range >= threshold) {
-                        channelStaves[ch] = 2;
-                    }
+                if (range >= threshold3Stave) {
+                    channelStaves[ch] = 3;
+                } else if (range >= threshold) {
+                    channelStaves[ch] = 2;
                 }
             });
         }
