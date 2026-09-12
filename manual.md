@@ -236,6 +236,166 @@ Saves the generated PDF and triggers a browser download.
 
 ---
 
+## MIDI Player Integration
+
+The SVG renderer exposes two features designed to synchronize with a MIDI player: a **moving playhead** and **active note highlighting**. Both are driven by a single argument — the current playback tick — so integration is straightforward regardless of the player library.
+
+### Playhead Visualization
+
+The playhead is a vertical red line drawn on top of the score, showing exactly where the music is currently playing.
+
+#### How It Works
+
+1.  When `updatePlayhead()` is called, the renderer looks up the currently active measure via `g[data-measure-number="N"]`.
+2.  From that measure, it finds the enclosing system (`g[data-system-number]`) to get the system's `x`, `y`, `width`, and `height` attributes.
+3.  It computes the horizontal position by interpolating between the measure's start and end:
+
+    ```
+    xPos = systemX + measureX + progress * measureWidth
+    ```
+
+    where `progress = tickInMeasure / ticksPerMeasure` (clamped to `0..1`).
+4.  The playhead line spans vertically from just above the top staff line to just below the bottom staff line, with a small padding.
+5.  The line is always re-appended to the SVG root so it stays above all other elements.
+
+#### Auto-Scroll
+
+When a `scrollContainer` and `scoreOptions.scroll` are provided, the renderer computes the pixel offset of the current system and calls `scrollContainer.scrollTo()` with a smooth behavior. A `scrollOffset` option lets you fine-tune the vertical positioning (e.g., leave some blank space above).
+
+The first system (`data-system-number="1"`) is treated specially: the scroll offset is forced to `0` so the score always starts fully visible at the beginning of playback.
+
+#### Method Signature
+
+```js
+renderer.updatePlayhead(tick, position, scrollContainer, scoreOptions);
+```
+
+| Argument | Type | Description |
+|---|---|---|
+| `tick` | number | Current MIDI tick from the player. |
+| `position` | object | `{ measure, tickInMeasure, ticksPerMeasure }`. |
+| `scrollContainer` | HTMLElement \| null | Scrollable wrapper around the SVG (for auto-scroll). |
+| `scoreOptions` | object | Same object used by `highlightActiveNotes`. Recognized keys: `scroll` (boolean), `scrollOffset` (number). |
+
+The `position` object is usually produced by `midi.header.tickToPosition(tick)` — the `MidiParser` header already exposes a compatible API.
+
+#### Example
+
+```js
+player.on('onPlaying', (tick, elapsedSec) => {
+    const pos = midi.header.tickToPosition(tick);
+    renderer.updatePlayhead(tick, pos, scoreContainer.parentNode, {
+        scroll: true,
+        scrollOffset: -20
+    });
+});
+```
+
+### Active Note Highlighting
+
+`highlightActiveNotes()` adds a `.highlight` class to every note group (`g.music-notation`) whose tick range contains the current tick. A pre-injected stylesheet recolors note heads, stems, beams, ties, rests, accidentals, and lyrics to a distinct red (`#dc2626`) while highlighted, so the effect is impossible to miss.
+
+#### How It Works
+
+1.  Every note group and rest group is annotated during rendering with:
+    -   `data-start-tick` — the tick when the note starts.
+    -   `data-end-tick` — the tick when the note ends.
+    -   `class="music-notation"` — the selector used for highlighting.
+2.  On each call, the method:
+    -   Clears `.highlight` from all previously highlighted elements.
+    -   Selects a search scope (the whole SVG root, or only the current and previous system for performance).
+    -   Adds `.highlight` to any element whose `[start, end)` range contains the tick.
+3.  Because the search is limited to the current and previous system when `measureNumber` is provided, the per-frame cost stays low even on long scores.
+
+#### Highlight CSS
+
+The renderer injects a `<style>` tag once in the constructor with rules for every SVG element that can appear inside a note group:
+
+```css
+.highlight .note-head            { fill: #dc2626 !important; }
+.highlight .note-stem            { stroke: #dc2626 !important; }
+.highlight .note-beam            { stroke: #dc2626 !important; }
+.highlight .note-flag path       { fill: #dc2626 !important; }
+.highlight .tie-curve            { fill: #dc2626 !important; }
+.highlight .rest-symbol          { fill: #dc2626 !important; }
+.highlight .rest-line            { stroke: #dc2626 !important; }
+.highlight .accidental-symbol    { fill: #dc2626 !important; }
+.highlight text                  { fill: #dc2626 !important; }
+```
+
+#### Method Signature
+
+```js
+renderer.highlightActiveNotes(tick, measureNumber, scoreOptions);
+```
+
+| Argument | Type | Description |
+|---|---|---|
+| `tick` | number | Current MIDI tick from the player. |
+| `measureNumber` | number \| null | If provided, restricts the search to the current and previous system. Pass `null` to search the entire score (slower on long pieces). |
+| `scoreOptions` | object | Recognized key: `highlight` (boolean). If `false`, the method returns immediately without doing anything. |
+
+#### Example
+
+```js
+const measure = Math.floor(player.tickToMeasure(tick));
+
+renderer.highlightActiveNotes(tick, measure, {
+    highlight: true
+});
+```
+
+### Combining Both Features
+
+The two features are independent, but in practice they are called together inside the player's tick callback:
+
+```js
+function updateScoreDisplay(tick) {
+    const pos = midi.header.tickToPosition(tick);
+    const measure = Math.floor(player.tickToMeasure(tick));
+
+    renderer.updatePlayhead(tick, pos, scoreContainer.parentNode, scoreOptions);
+    renderer.highlightActiveNotes(tick, measure, scoreOptions);
+}
+```
+
+### Toggling the Features
+
+Both are controlled through the `scoreOptions` object passed to `render()` and to the two methods:
+
+```js
+const scoreOptions = {
+    playhead:  true,   // reserved for future use
+    highlight: true,   // enable note highlighting
+    scroll:    true,   // enable auto-scroll during playback
+    scrollOffset: 0    // pixels to add to the auto-scroll target
+};
+```
+
+Setting `highlight: false` disables highlighting entirely. Setting `scroll: false` disables auto-scroll while keeping the playhead visible.
+
+### Ticks Are Relative to the Rendered Score
+
+The `tick` values used by the playhead and highlighting are the same values used during conversion. If the score is re-rendered with a different `selectedTrack`, `transpose`, or `muteChannels`, the tick base stays the same (the underlying MIDI timeline is unchanged) — only the note layout changes. This means the player can keep ticking without needing to be reloaded when the user re-filters the score.
+
+If the score is re-rendered due to a different `transpose` value, the note positions change but the `data-start-tick`/`data-end-tick` attributes remain tied to the same musical events, so highlighting stays accurate.
+
+### Pausing, Seeking, and Stopping
+
+The renderer does not manage playback state. It only reacts to whatever tick the caller provides. To handle pause/seek/stop:
+
+-   **Pause**: Stop calling `updatePlayhead` / `highlightActiveNotes`. The playhead stays where it was last drawn.
+-   **Seek**: Call both methods with the new tick — they will jump the playhead and refresh the highlight.
+-   **Stop**: Call `updatePlayhead(0, pos, ...)` and `highlightActiveNotes(0, 0, ...)` to reset the visual state to the beginning.
+
+### Performance Notes
+
+-   `highlightActiveNotes()` uses `querySelectorAll('g.music-notation')` and iterates in a scoped subtree when `measureNumber` is supplied. For scores with hundreds of measures, always pass a measure number.
+-   `updatePlayhead()` triggers a single attribute update per call (four attributes on one `<line>`). It is safe to call every animation frame.
+-   The auto-scroll uses `scrollTo({ behavior: 'smooth' })`. On low-end devices this can cause jank if called every frame; consider throttling to ~30 Hz or calling it only when the system changes (compare `activeSystem.dataset.systemNumber` to the previous value).
+
+---
+
 ## Integration Notes
 
 ### Selecting Tracks in the UI
