@@ -513,21 +513,6 @@ class MidiParser {
              * @returns {number} return.denominator - Time signature denominator at this tick.
              * @returns {number} return.ticksPerBeat - Number of ticks per beat under current signature.
              * @returns {number} return.ticksPerMeasure - Number of ticks per measure under current signature.
-             *
-             * @example
-             * // Assuming PPQ = 480 and 4/4 time signature
-             * tickToPosition(960);
-             * // => {
-             * //   tick: 960,
-             * //   measure: 1,
-             * //   beat: 3,
-             * //   tickInBeat: 0,
-             * //   tickInMeasure: 960,
-             * //   numerator: 4,
-             * //   denominator: 4,
-             * //   ticksPerBeat: 480,
-             * //   ticksPerMeasure: 1920
-             * // }
              */
 
             tickToPosition(targetTick) {
