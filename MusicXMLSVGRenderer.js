@@ -1214,7 +1214,7 @@ class MusicXMLSVGRenderer {
             "M0 3.5 L5 2.5 L5 3.0 L0 4.0 Z",
             "M0 6.5 L5 5.5 L5 6.0 L0 7.0 Z"
         ];
-        const tx = x - 3 * scale;
+        const tx = x - 1 * scale;
         const ty = y - 8.5 * scale;
         const sx = 2.25 * scale * 0.8;
         const sy = 2.25 * scale * 0.8;
@@ -1596,14 +1596,14 @@ class MusicXMLSVGRenderer {
             }
         });
 
-        const x1 = first.stemX;
-        const y1 = first.stemEndY;
-        const x2 = last.stemX;
-        const y2 = last.stemEndY;
+        let x1 = first.stemX;
+        let y1 = first.stemEndY;
+        let x2 = last.stemX;
+        let y2 = last.stemEndY;
 
         // Align intermediate stem endpoints to touch the sloped beam vector exactly
-        const dx = x2 - x1;
-        const dy = y2 - y1;
+        let dx = x2 - x1;
+        let dy = y2 - y1;
 
         if (dx > 0) {
             group.forEach(s => {
@@ -1650,10 +1650,21 @@ class MusicXMLSVGRenderer {
             }
         };
 
+        let beamOffset = 0.7 * scale;
+
         // ============================================================
         // PERBAIKAN UTAMA: Gambar beam secara bertahap
         // ============================================================
         // Primary Beam Line (level 1) - selalu ada untuk semua note
+
+        if(x1 < x2) {
+            x1 = x1 - beamOffset;
+            x2 = x2 + beamOffset;
+        } else {
+            x1 = x1 + beamOffset;
+            x2 = x2 - beamOffset;
+        }
+
         const beam = document.createElementNS("http://www.w3.org/2000/svg", "line");
         beam.classList.add("note-beam");
         beam.setAttribute("x1", x1);
@@ -1662,7 +1673,7 @@ class MusicXMLSVGRenderer {
         beam.setAttribute("y2", y2);
         beam.setAttribute("stroke", this.engraverColor);
         beam.setAttribute("stroke-width", `${3.5 * scale}`);
-        this.svg.appendChild(beam);
+        this.svg.appendChild(beam);  
 
         // ============================================================
         // PERBAIKAN: Gambar secondary beam hanya untuk note yang
@@ -1681,10 +1692,18 @@ class MusicXMLSVGRenderer {
                 const firstBeam2 = beam2Notes[0];
                 const lastBeam2 = beam2Notes[beam2Notes.length - 1];
                 
-                const bx1 = firstBeam2.stemX;
-                const by1 = firstBeam2.stemEndY + offset;
-                const bx2 = lastBeam2.stemX;
-                const by2 = lastBeam2.stemEndY + offset;
+                let bx1 = firstBeam2.stemX;
+                let by1 = firstBeam2.stemEndY + offset;
+                let bx2 = lastBeam2.stemX;
+                let by2 = lastBeam2.stemEndY + offset;
+
+                if(bx1 < bx2) {
+                    bx1 = bx1 - beamOffset;
+                    bx2 = bx2 + beamOffset;
+                } else {
+                    bx1 = bx1 + beamOffset;
+                    bx2 = bx2 - beamOffset;
+                }
                 
                 const beam2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
                 beam2.classList.add("note-beam");
@@ -1711,10 +1730,18 @@ class MusicXMLSVGRenderer {
                 const firstBeam3 = beam3Notes[0];
                 const lastBeam3 = beam3Notes[beam3Notes.length - 1];
                 
-                const bx1 = firstBeam3.stemX;
-                const by1 = firstBeam3.stemEndY + offset3;
-                const bx2 = lastBeam3.stemX;
-                const by2 = lastBeam3.stemEndY + offset3;
+                let bx1 = firstBeam3.stemX;
+                let by1 = firstBeam3.stemEndY + offset3;
+                let bx2 = lastBeam3.stemX;
+                let by2 = lastBeam3.stemEndY + offset3;
+
+                if(bx1 < bx2) {
+                    bx1 = bx1 - beamOffset;
+                    bx2 = bx2 + beamOffset;
+                } else {
+                    bx1 = bx1 + beamOffset;
+                    bx2 = bx2 - beamOffset;
+                }
                 
                 const beam3 = document.createElementNS("http://www.w3.org/2000/svg", "line");
                 beam3.classList.add("note-beam");
@@ -1740,7 +1767,7 @@ class MusicXMLSVGRenderer {
      */
     drawNotehead(cx, cy, color, isHollow, noteheadType = 'normal', channelId = -1) {
         const scale = this.zoom || 1.0;
-        let rx = 7.75 * scale;
+        let rx = 7.1 * scale;
         let ry = 4.6 * scale;
         const strokeWidth = 2.0 * scale;
 

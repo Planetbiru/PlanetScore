@@ -715,7 +715,7 @@ class MusicXMLPDFRenderer {
             "M0 3.5 L5 2.5 L5 3.0 L0 4.0 Z",
             "M0 6.5 L5 5.5 L5 6.0 L0 7.0 Z"
         ];
-        const tx = x + 9 * scale;
+        const tx = x + 7 * scale;
         const ty = y - 8.5 * scale;
         const sx = 2.2 * scale * 0.8;
         const sy = 2.2 * scale * 0.8;
@@ -958,10 +958,12 @@ class MusicXMLPDFRenderer {
         //     }
         // });
 
-        const x1 = first.stemX;
-        const y1 = first.stemEndY;
-        const x2 = last.stemX;
-        const y2 = last.stemEndY;
+        let beamOffset = 0.7;
+
+        let x1 = first.stemX;
+        let y1 = first.stemEndY;
+        let x2 = last.stemX;
+        let y2 = last.stemEndY;
 
         const dx = x2 - x1;
         const dy = y2 - y1;
@@ -997,6 +999,13 @@ class MusicXMLPDFRenderer {
         };
 
         // Primary beam
+        if(x1 < x2) {
+            x1 = x1 - beamOffset;
+            x2 = x2 + beamOffset;
+        } else {
+            x1 = x1 + beamOffset;
+            x2 = x2 - beamOffset;
+        }
         this.doc.setDrawColor(...this.engraverColor);
         this.doc.setLineWidth(3.5);
         this.doc.line(x1, y1, x2, y2);
@@ -1008,6 +1017,15 @@ class MusicXMLPDFRenderer {
             if (beam2Notes.length > 0) {
                 const firstBeam2 = beam2Notes[0];
                 const lastBeam2 = beam2Notes[beam2Notes.length - 1];
+
+                if(firstBeam2.stemX < lastBeam2.stemX) {
+                    firstBeam2.stemX = firstBeam2.stemX - beamOffset;
+                    lastBeam2.stemX = lastBeam2.stemX + beamOffset;
+                } else {
+                    firstBeam2.stemX = firstBeam2.stemX + beamOffset;
+                    lastBeam2.stemX = lastBeam2.stemX - beamOffset;
+                }
+
                 this.doc.setLineWidth(3.0);
                 this.doc.line(
                     firstBeam2.stemX, firstBeam2.stemEndY + offset,
@@ -1023,6 +1041,15 @@ class MusicXMLPDFRenderer {
             if (beam3Notes.length > 0) {
                 const firstBeam3 = beam3Notes[0];
                 const lastBeam3 = beam3Notes[beam3Notes.length - 1];
+
+                if(firstBeam3.stemX < lastBeam3.stemX) {
+                    firstBeam3.stemX = firstBeam3.stemX - beamOffset;
+                    lastBeam3.stemX = lastBeam3.stemX + beamOffset;
+                } else {
+                    firstBeam3.stemX = firstBeam3.stemX + beamOffset;
+                    lastBeam3.stemX = lastBeam3.stemX - beamOffset;
+                }
+
                 this.doc.setLineWidth(3.0);
                 this.doc.line(
                     firstBeam3.stemX, firstBeam3.stemEndY + offset3,
