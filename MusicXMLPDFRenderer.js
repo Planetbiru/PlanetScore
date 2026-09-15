@@ -129,12 +129,52 @@ class MusicXMLPDFRenderer {
 
         let currentY = this.MARGIN + 20;
 
-        this.drawText(this.PAGE_WIDTH / 2, currentY, songTitle, 22, this.engraverColor, "center", true, this.FONT_SERIF);
+        // Judul (center)
+        this.drawText(
+            this.PAGE_WIDTH / 2,
+            currentY,
+            songTitle,
+            22,
+            this.engraverColor,
+            "center",
+            true,
+            this.FONT_SERIF
+        );
+
+        // ============================================================
+        // Baseline bersama untuk Composer (kanan) dan Part Name (kiri)
+        // ============================================================
+        currentY += 15;
+        const metadataY = currentY;
+
+        // Composer (kanan)
         if (composer) {
-            this.drawText(this.PAGE_WIDTH - this.MARGIN, currentY + 15, composer, 11, this.engraverColor, "right", false, this.FONT_SANS_SERIF);
+            this.drawText(
+                this.PAGE_WIDTH - this.MARGIN,
+                metadataY,
+                composer,
+                11,
+                this.engraverColor,
+                "right",
+                false,
+                this.FONT_SANS_SERIF
+            );
         }
-        currentY += 22;
-        this.drawText(this.MARGIN, currentY, partName, 12, this.subtitleColor, "left", true, this.FONT_SANS_SERIF);
+
+        // Part Name / Instrument (kiri)
+        this.drawText(
+            this.MARGIN,
+            metadataY,
+            partName,
+            12,
+            this.subtitleColor,
+            "left",
+            true,
+            this.FONT_SANS_SERIF
+        );
+
+        // Geser currentY ke posisi berikutnya (sebelum sistem pertama)
+        currentY += 7;   // sisa 7 untuk mencapai total +22 dari judul
 
         currentY += 80;
         const leftMargin = this.MARGIN + 45;

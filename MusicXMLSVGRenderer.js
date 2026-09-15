@@ -57,6 +57,8 @@ class MusicXMLSVGRenderer {
             .highlight .slur-curve { stroke: #dc2626 !important; }
             .highlight .accidental-symbol { fill: #dc2626 !important; }
             .highlight circle { fill: #dc2626 !important; }
+            .highlight .tie-curve { fill: #dc2626 !important; }
+            .tie-curve.highlight   { fill: #dc2626 !important; }
         `;
         document.head.appendChild(style);
 
@@ -260,15 +262,38 @@ class MusicXMLSVGRenderer {
             this.drawText(containerWidth / 2, currentY, subtitle, `${Math.round(12 * scale)}px`, "#64748b", "middle", false);
         }
 
-        // Composer
+        // ============================================================
+        // Metadata line: Composer (kanan) + Part Name (kiri) sejajar
+        // ============================================================
+        currentY += 15 * scale;                 // geser ke baseline bersama
+        const metadataY = currentY;
+
+        // Composer (kanan)
         if (composer) {
-            this.drawText(containerWidth - 40 * scale, currentY + 15 * scale, composer, `${Math.round(11 * scale)}px`, this.engraverColor, "end", false, "'Inter', sans-serif");
+            this.drawText(
+                containerWidth - 40 * scale,
+                metadataY,
+                composer,
+                `${Math.round(11 * scale)}px`,
+                this.engraverColor,
+                "end",
+                false,
+                "'Inter', sans-serif"
+            );
         }
 
-        // Part Name / Instrument
-        currentY += 22 * scale;
-        this.drawText(25 * scale, currentY, partName, `${Math.round(12 * scale)}px`, "#475569", "start", true, "'Inter', sans-serif");
-
+        // Part Name / Instrument (kiri)
+        this.drawText(
+            25 * scale,
+            metadataY,
+            partName,
+            `${Math.round(12 * scale)}px`,
+            "#475569",
+            "start",
+            true,
+            "'Inter', sans-serif"
+        );
+        
         // Pre-fetch part names and abbreviations for system labels
         const partDetails = {};
         partStaffMap.forEach(pInfo => {
@@ -1428,6 +1453,14 @@ class MusicXMLSVGRenderer {
                 const curveHeight = Math.min(22, Math.max(8, span * 0.35)) * scale;
                 const thickness = 3.3 * scale;
 
+                // ==============================================================
+                // Rentang tick untuk highlight tie (dari note awal ke note akhir)
+                // ==============================================================
+                const noteStartTick = this._cumulativeTick + note.onsetDiv;
+                const noteEndTick   = noteStartTick + note.duration;
+                const tieStartTick  = (prev.startTick !== undefined) ? prev.startTick : noteStartTick;
+                const tieEndTick    = noteEndTick;
+
                 if (isCrossSystem) {
                     // ==============================================================
                     // Segmen 1: berakhir TEPAT di garis birama kanan sistem lama
@@ -1444,6 +1477,8 @@ class MusicXMLSVGRenderer {
                     path1.setAttribute("d", d1);
                     path1.setAttribute("fill", this.engraverColor);
                     path1.classList.add("tie-curve");
+                    path1.setAttribute("data-start-tick", tieStartTick);
+                    path1.setAttribute("data-end-tick",   tieEndTick);
                     this.svg.appendChild(path1);
 
                     // ==============================================================
@@ -1461,6 +1496,8 @@ class MusicXMLSVGRenderer {
                     path2.setAttribute("d", d2);
                     path2.setAttribute("fill", this.engraverColor);
                     path2.classList.add("tie-curve");
+                    path2.setAttribute("data-start-tick", tieStartTick);
+                    path2.setAttribute("data-end-tick",   tieEndTick);
                     this.svg.appendChild(path2);
                 } else {
                     // Tie normal: lengkungan proporsional dengan jarak antar-note
@@ -1472,6 +1509,8 @@ class MusicXMLSVGRenderer {
                     tiePath.setAttribute("d", d);
                     tiePath.setAttribute("fill", this.engraverColor);
                     tiePath.classList.add("tie-curve");
+                    tiePath.setAttribute("data-start-tick", tieStartTick);
+                    tiePath.setAttribute("data-end-tick",   tieEndTick);
                     this.svg.appendChild(tiePath);
                 }
 
@@ -1479,7 +1518,13 @@ class MusicXMLSVGRenderer {
             }
 
             if (tieStart) {
-                activeTies[pitchKey] = { x: x, y: note.y };
+                const startTick = this._cumulativeTick + note.onsetDiv;
+                activeTies[pitchKey] = {
+                    x: x,
+                    y: note.y,
+                    startTick: startTick,
+                    endTick:   startTick + note.duration
+                };
             }
         });
 
@@ -2275,8 +2320,8 @@ class MusicXMLSVGRenderer {
         if (!this._svgRoot || !scoreOptions.highlight) {
             return;
         }
-        
-        let parentElements = [this._svgRoot]; // default: seluruh root
+
+        let parentElements = [this._svgRoot];
 
         if (measureNumber !== null) {
             let systemNumber = null;
@@ -2289,7 +2334,6 @@ class MusicXMLSVGRenderer {
                 const prevSystem = this._svgRoot.querySelector(`g[data-system-number="${systemNumber - 1}"]`);
                 if (prevSystem) systemElements.push(prevSystem);
             }
-
             if (systemElements.length > 0) {
                 parentElements = systemElements;
             }
@@ -2298,12 +2342,23 @@ class MusicXMLSVGRenderer {
         // 1. Clear previous highlights
         this._svgRoot.querySelectorAll('.highlight').forEach(el => el.classList.remove('highlight'));
 
-        // 2. Highlight current notes/rests
+        // 2. Highlight current notes/rests + tie curves
         parentElements.forEach(parentElement => {
+            // Highlight note/rest groups
             const musicalElements = parentElement.querySelectorAll('g.music-notation');
             musicalElements.forEach(el => {
                 const minTick = parseFloat(el.dataset.startTick);
                 const maxTick = parseFloat(el.dataset.endTick);
+                if (tick >= minTick && tick < maxTick) {
+                    el.classList.add('highlight');
+                }
+            });
+
+            // === BARU: Highlight tie curves berdasarkan rentang tick-nya sendiri ===
+            const tieCurves = parentElement.querySelectorAll('path.tie-curve[data-start-tick]');
+            tieCurves.forEach(el => {
+                const minTick = parseFloat(el.getAttribute('data-start-tick'));
+                const maxTick = parseFloat(el.getAttribute('data-end-tick'));
                 if (tick >= minTick && tick < maxTick) {
                     el.classList.add('highlight');
                 }
