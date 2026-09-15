@@ -45,6 +45,8 @@ class MusicXMLPDFRenderer {
         this.doc.setFont('helvetica', 'normal');
         this.FONT_SANS_SERIF = 'helvetica';
         this.FONT_SERIF = 'times';
+        this.lyricFontSize = options.lyricFontSize ?? 10;
+        this.lyricFontFamily = options.lyricFontFamily ?? 'sans-serif';
     }
 
     /**
@@ -950,7 +952,7 @@ class MusicXMLPDFRenderer {
                 }
             }
             if (restNote.lyric) {
-                this.drawText(x, y + this.liricYOffset, restNote.lyric, 10, this.engraverColor, "center", false, this.FONT_SANS_SERIF);
+                this.drawText(x, y + this.liricYOffset, restNote.lyric, this.lyricFontSize, this.engraverColor, "center", false, this.resolveFontFamily(this.lyricFontFamily));
             }
             return null;
         }
@@ -995,7 +997,7 @@ class MusicXMLPDFRenderer {
             }
 
             if (note.lyric) {
-                this.drawText(x, y + this.liricYOffset, note.lyric, 10, this.engraverColor, "center", false, this.FONT_SANS_SERIF);
+                this.drawText(x, y + this.liricYOffset, note.lyric, this.lyricFontSize, this.engraverColor, "center", false, this.resolveFontFamily(this.lyricFontFamily));
             }
 
             // Tie
@@ -1553,6 +1555,22 @@ class MusicXMLPDFRenderer {
         } else {
             return startY + (10 - diatonic) * ls;
         }
+    }
+
+    /**
+     * Resolves a generic font family name to a jsPDF-safe font family.
+     *
+     * @param {string} family Generic font family such as sans-serif, serif, or monospace.
+     * @returns {string} A jsPDF-compatible font family name.
+     */
+    resolveFontFamily(family = 'sans-serif') {
+        const normalized = String(family || 'sans-serif').trim().toLowerCase();
+        const map = {
+            'sans-serif': this.FONT_SANS_SERIF,
+            'serif': this.FONT_SERIF,
+            'monospace': 'courier'
+        };
+        return map[normalized] || this.FONT_SANS_SERIF;
     }
 
     /**

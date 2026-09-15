@@ -76,6 +76,8 @@ class MusicXMLSVGRenderer {
         this.baseRowSpacingDouble = 220;
         this.measuresPerLine = 3;
         this.liricYOffset = 80;
+        this.lyricFontSize = options.lyricFontSize ?? 11;
+        this.lyricFontFamily = options.lyricFontFamily ?? 'sans-serif';
 
         // Engraving Color Palette
         this.engraverColor = "#0f172a"; // Solid dark engraver ink
@@ -1342,7 +1344,7 @@ class MusicXMLSVGRenderer {
             }
             // **FIX**: Draw lyric if it's attached to a rest
             if (note.lyric) {
-                this.drawText(x, y + (this.liricYOffset * scale), note.lyric, `${Math.round(11 * scale)}px`, "#1e293b", "middle", false, "'Inter', sans-serif");
+                this.drawText(x, y + (this.liricYOffset * scale), note.lyric, `${Math.round(this.lyricFontSize * scale)}px`, "#1e293b", "middle", false, this.lyricFontFamily);
             }
             
             this.svg = originalSvg; // Restore original target
@@ -1432,7 +1434,7 @@ class MusicXMLSVGRenderer {
 
             // Lyric Text
             if (note.lyric) {
-                this.drawText(x, y + (this.liricYOffset * scale), note.lyric, `${Math.round(11 * scale)}px`, "#1e293b", "middle", false, "'Inter', sans-serif");
+                this.drawText(x, y + (this.liricYOffset * scale), note.lyric, `${Math.round(this.lyricFontSize * scale)}px`, "#1e293b", "middle", false, this.lyricFontFamily);
             }
 
             // Slurs / Ties Bezier Arcs
