@@ -917,7 +917,7 @@ class MusicXMLSVGRenderer {
         const topMargin = 20 * scale; // Explicit top margin inside the SVG
         const finalContentBottomY = currentY + calculatedStaffSystemHeight + 40 * scale;
         const viewBoxStartY = initialY - topMargin; // Start viewBox above the first content element
-        const totalContentHeight = finalContentBottomY - viewBoxStartY;
+        const totalContentHeight = finalContentBottomY + topMargin - viewBoxStartY;
 
         const viewBoxWidth = this.forceMobile ? 425 : containerWidth;
         this.svg.setAttribute("viewBox", `-10 ${viewBoxStartY} ${viewBoxWidth} ${totalContentHeight}`);
