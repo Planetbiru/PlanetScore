@@ -8,6 +8,14 @@
  * @dependency jsPDF
  */
 class MusicXMLPDFRenderer {
+    /**
+     * Creates a PDF renderer instance configured for MusicXML layout export.
+     *
+     * @param {Object} [options={}] Renderer settings.
+     * @param {number} [options.staffSpacing=80] Vertical spacing between staff lines.
+     * @param {number} [options.partSpacing=80] Gap between musical parts.
+     * @param {number} [options.systemSpacing=80] Gap between systems.
+     */
     constructor(options = {}) {
         this.doc = new window.jspdf.jsPDF({
             orientation: 'portrait',
@@ -39,6 +47,13 @@ class MusicXMLPDFRenderer {
         this.FONT_SERIF = 'times';
     }
 
+    /**
+     * Renders MusicXML content into a multi-page PDF score.
+     *
+     * @param {string} xmlText MusicXML source text to render.
+     * @returns {void}
+     * @throws {Error} If the MusicXML content is missing or malformed.
+     */
     render(xmlText) {
         if (!xmlText || typeof xmlText !== 'string') {
             throw new Error("No MusicXML data provided.");
@@ -586,6 +601,12 @@ class MusicXMLPDFRenderer {
         }
     }
 
+    /**
+     * Saves the generated PDF to the browser download stream.
+     *
+     * @param {string} [filename='music-score.pdf'] Output file name.
+     * @returns {void}
+     */
     save(filename = 'music-score.pdf') {
         this.doc.save(filename);
     }
@@ -594,6 +615,14 @@ class MusicXMLPDFRenderer {
     // DRAWING PRIMITIVES
     // ============================================================
 
+    /**
+     * Draws the five staff lines for a given staff and width.
+     *
+     * @param {number} x Starting x-coordinate for the staff.
+     * @param {number} y Starting y-coordinate for the staff.
+     * @param {number} width Total width of the staff.
+     * @returns {void}
+     */
     drawStaffLines(x, y, width) {
         this.doc.setDrawColor(...this.staffLineColor);
         this.doc.setLineWidth(0.7);
@@ -607,12 +636,28 @@ class MusicXMLPDFRenderer {
         this.currentSystemRightX = x + width;
     }
 
+    /**
+     * Draws the left boundary line for a score system.
+     *
+     * @param {number} x X-position of the boundary.
+     * @param {number} y Top y-position of the system.
+     * @param {number} totalSystemHeight Total vertical height of the system.
+     * @returns {void}
+     */
     drawSystemStartLine(x, y, totalSystemHeight) {
         this.doc.setDrawColor(...this.engraverColor);
         this.doc.setLineWidth(1.3);
         this.doc.line(x, y, x, y + totalSystemHeight);
     }
 
+    /**
+     * Draws a grand-staff brace between two staff groups.
+     *
+     * @param {number} x X-position for the brace.
+     * @param {number} topY Top y-coordinate of the brace.
+     * @param {number} bottomY Bottom y-coordinate of the brace.
+     * @returns {void}
+     */
     drawGrandStaffBrace(x, topY, bottomY) {
         const height = bottomY - topY;
         const midY = topY + height / 2;
@@ -627,6 +672,15 @@ class MusicXMLPDFRenderer {
         this.drawSVGPath(d, 0, 0, 1, 1, true, 'none');
     }
 
+    /**
+     * Draws a measure barline, including the final barline style when needed.
+     *
+     * @param {number} x X-position of the barline.
+     * @param {number} y Top y-position of the staff.
+     * @param {boolean} isFinalEnd Whether this is the final ending barline.
+     * @param {number} totalSystemHeight Total staff height for the system.
+     * @returns {void}
+     */
     drawBarLine(x, y, isFinalEnd, totalSystemHeight) {
         this.doc.setDrawColor(...this.staffLineColor);
         if (isFinalEnd) {
@@ -640,6 +694,14 @@ class MusicXMLPDFRenderer {
         }
     }
 
+    /**
+     * Draws the correct clef symbol for a staff.
+     *
+     * @param {string} clefSign Clef type such as G, F, or C.
+     * @param {number} x X-position for the clef.
+     * @param {number} y Top y-position of the staff.
+     * @returns {void}
+     */
     drawClef(clefSign, x, y) {
         if (clefSign === "F") {
             this.drawBassClef(x, y);
@@ -650,6 +712,13 @@ class MusicXMLPDFRenderer {
         }
     }
 
+    /**
+     * Draws a treble clef using a vector path.
+     *
+     * @param {number} x X-position for the treble clef.
+     * @param {number} y Top y-position of the staff.
+     * @returns {void}
+     */
     drawTrebleClef(x, y) {
         const scale = 0.75;
         const treblePathData = "M165 177q-24 30-26 60-2 34 19 64 23 32 57 34h21l4 23q3 15 2 26-1 15-9 24-9 10-23 9-6 0-11-3l10-5q9-7 10-19 0-12-6-21-8-9-20-10t-22 9q-7 10-9 22-1 19 14 31 13 11 31 12a52 52 0 0 0 34-9q17-13 18-31 1-15-2-34l-4-29q17-5 28-20 12-15 13-36 3-25-12-46a51 51 0 0 0-46-23l-5-36q20-16 32-42 12-24 14-53 0-17-5-41-7-31-22-33-6 0-12 6a89 89 0 0 0-25 37 167 167 0 0 0-3 89q-31 29-45 45m98 97c0 12-5 31-13 36l-9-63q21 6 22 27m-41-169q1-18 9-37 10-22 16-22h3c5 0 10 2 9 15q-1 17-13 35-10 15-22 25-3-7-2-16m-6 76 3 27q-14 6-23 18-12 13-13 30-1 18 8 31 4 7 12 13c7 5 16 5 18 2q0-4-8-15-4-5-4-13 1-18 16-25l9 70-16 1q-22-2-39-19a48 48 0 0 1-16-38q3-42 53-82";
@@ -663,6 +732,13 @@ class MusicXMLPDFRenderer {
         this.drawSVGPath(treblePathData, tx, ty, sx, sy, true);
     }
 
+    /**
+     * Draws a bass clef using a vector path and two dots.
+     *
+     * @param {number} x X-position for the bass clef.
+     * @param {number} y Top y-position of the staff.
+     * @returns {void}
+     */
     drawBassClef(x, y) {
         const scale = 0.8;
         const bassPathData = "M205 23c-67 0-107 39-118 77-11 39 3 77 17 98h1a64 64 0 0 0 52 26 64 64 0 0 0 64-64 64 64 0 0 0-64-64 64 64 0 0 0-50 24l3-18c10-33 34-61 95-61 60 0 94 64 92 153-1 80-12 128-60 171q-72 65-180 107c-13 5-1 19 7 16 73-28 145-53 196-98 51-46 96-87 96-198 1-97-44-169-151-169";
@@ -682,6 +758,13 @@ class MusicXMLPDFRenderer {
         this.drawCircle(dotX, dotAdjustedY + (2 * this.lineSpacing), r, this.engraverColor);
     }
 
+    /**
+     * Draws an alto clef using a vector path.
+     *
+     * @param {number} x X-position for the alto clef.
+     * @param {number} y Top y-position of the staff.
+     * @returns {void}
+     */
     drawAltoClef(x, y) {
         const scaleFactor = 1.0;
         const staffHeight = 4 * this.lineSpacing;
@@ -694,11 +777,31 @@ class MusicXMLPDFRenderer {
         this.drawSVGPath(pathData, tx, ty, clefScale, clefScale, true);
     }
 
+    /**
+     * Draws a filled or outlined circle.
+     *
+     * @param {number} cx Circle center x-coordinate.
+     * @param {number} cy Circle center y-coordinate.
+     * @param {number} r Radius of the circle.
+     * @param {number[]} color RGB color array.
+     * @param {string} [style='F'] Fill or stroke style.
+     * @returns {void}
+     */
     drawCircle(cx, cy, r, color, style = 'F') {
         this.doc.setFillColor(...color);
         this.doc.circle(cx, cy, r, style);
     }
 
+    /**
+     * Draws the time signature for the staff.
+     *
+     * @param {number} x X-position of the time signature.
+     * @param {number} y Top y-position of the staff.
+     * @param {number} beats Number of beats in the measure.
+     * @param {number} beatType Beat unit value.
+     * @param {string|null} [symbol=null] Optional time-symbol style such as common or cut.
+     * @returns {void}
+     */
     drawTimeSignature(x, y, beats, beatType, symbol = null) {
         if (symbol === "common") {
             this.drawText(x, y + 24, "C", 24, this.engraverColor, "center", true, this.FONT_SERIF);
@@ -715,6 +818,15 @@ class MusicXMLPDFRenderer {
         }
     }
 
+    /**
+     * Draws the key signature according to the staff clef and sharp/flat count.
+     *
+     * @param {number} x X-position for the signature.
+     * @param {number} y Top y-position of the staff.
+     * @param {number} fifths Number of accidentals in the key signature.
+     * @param {string} clefType Clef name: G, F, or C.
+     * @returns {number} The horizontal width consumed by the signature.
+     */
     drawKeySignature(x, y, fifths, clefType) {
         if (!fifths || fifths === 0) return 0;
 
@@ -751,6 +863,13 @@ class MusicXMLPDFRenderer {
         return count * 9;
     }
 
+    /**
+     * Draws a sharp accident symbol.
+     *
+     * @param {number} x X-position for the symbol.
+     * @param {number} y Y-position for the symbol.
+     * @returns {void}
+     */
     drawSharp(x, y) {
         const scale = 0.6;
         const paths = [
@@ -770,6 +889,13 @@ class MusicXMLPDFRenderer {
         });
     }
 
+    /**
+     * Draws a flat accident symbol.
+     *
+     * @param {number} x X-position for the symbol.
+     * @param {number} y Y-position for the symbol.
+     * @returns {void}
+     */
     drawFlat(x, y) {
         const scale = 0.8;
         const d = "M 1.2 0 L 1.6 0 L 1.6 9 C 4.8 9 4.8 18 1.6 18 L 1.2 18 Z";
@@ -781,6 +907,13 @@ class MusicXMLPDFRenderer {
         this.drawSVGPath(d, tx, ty, sx, sy, true);
     }
 
+    /**
+     * Draws a natural accident symbol.
+     *
+     * @param {number} x X-position for the symbol.
+     * @param {number} y Y-position for the symbol.
+     * @returns {void}
+     */
     drawNatural(x, y) {
         const scale = 0.8;
         const d = "M 1 0 L 1.4 0 L 1.4 10 L 1 10 Z M 3 0 L 3.4 0 L 3.4 10 L 3 10 Z M 1 3 L 3.4 3 L 3.4 3.5 L 1 3.5 Z M 1 6.5 L 3.4 6.5 L 3.4 7 L 1 7 Z";
@@ -795,6 +928,17 @@ class MusicXMLPDFRenderer {
     // ============================================================
     // DRAW NOTE COLUMN (mengembalikan stem data untuk beaming)
     // ============================================================
+    /**
+     * Draws a note column, including rest handling, accidentals, ties, and stem metadata.
+     *
+     * @param {number} x X-position of the note column.
+     * @param {number} y Top y-position of the staff.
+     * @param {Array<Object>} notes Array of note objects belonging to the same column.
+     * @param {string} clefType Current clef type.
+     * @param {Object} activeTies Map of active tie objects keyed by pitch.
+     * @param {number} [channelId=-1] MIDI channel id used to determine drum-like notehead styling.
+     * @returns {Object|null} Stem and beaming metadata for the column, or null for rests.
+     */
     drawNoteColumn(x, y, notes, clefType, activeTies, channelId = -1) {
         const rests = notes.filter(n => n.isRest);
         if (rests.length > 0) {
@@ -972,6 +1116,12 @@ class MusicXMLPDFRenderer {
     // ============================================================
     // BEAMING
     // ============================================================
+    /**
+     * Groups stems into beamed note clusters and renders beams for each group.
+     *
+     * @param {Array<Object>} stems Stem metadata objects produced by note columns.
+     * @returns {void}
+     */
     drawBeams(stems) {
         if (!stems || stems.length < 2) {
             // Tidak ada group, gambar flag untuk semua note
@@ -1012,7 +1162,10 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Gambar flag berdasarkan data stem.
+     * Draws a flag on a stem for a non-beamed note.
+     *
+     * @param {Object} s Stem metadata for the note.
+     * @returns {void}
      */
     drawFlagForStem(s) {
         if (!s.isBeamable) return;
@@ -1020,6 +1173,12 @@ class MusicXMLPDFRenderer {
         this.drawStemFlag(s.stemX, s.stemEndY, s.stemDown, isDouble);
     }
 
+    /**
+     * Draws a grouped beam for a connected set of note stems.
+     *
+     * @param {Array<Object>} group Stem metadata objects in one beam group.
+     * @returns {void}
+     */
     renderBeamGroup(group) {
         const first = group[0];
         const last = group[group.length - 1];
@@ -1132,6 +1291,15 @@ class MusicXMLPDFRenderer {
         }
     }
 
+    /**
+     * Draws a single stem flag for note durations such as eighth or sixteenth notes.
+     *
+     * @param {number} x X-position of the flag anchor.
+     * @param {number} y Y-position of the flag anchor.
+     * @param {boolean} isDown Whether the stem is oriented downward.
+     * @param {boolean} isDouble Whether a double flag should be rendered.
+     * @returns {void}
+     */
     drawStemFlag(x, y, isDown, isDouble) {
         const scale = 1.0;
         const flagPathUp = "M -0.112 3.631 C -0.112 0 -0.3031 0 0 0 C 0.28 0.1911 0 0 0 0 C 0.42 0.6879 0.512 0.7834 0.531 0.898 C 1.4 2.8 1.4 2.8 2.327 4.051 C 4.028 5.943 4.525 7.071 4.525 8.581 C 4.506 9.994 3.263 13.014 2.996 12.899 C 3.378 11.829 3.913 10.682 4.047 9.727 C 4.219 8.561 3.741 6.879 1.831 5.16 C 0.779 4.294 0 4.2 -0.112 3.631 Z";
@@ -1149,6 +1317,17 @@ class MusicXMLPDFRenderer {
         }
     }
 
+    /**
+     * Draws a notehead, including percussion x-noteheads when relevant.
+     *
+     * @param {number} cx Center x-coordinate of the notehead.
+     * @param {number} cy Center y-coordinate of the notehead.
+     * @param {number[]} color RGB color array to use.
+     * @param {boolean} isHollow Whether the notehead should be open.
+     * @param {string} [noteheadType='normal'] Type of notehead.
+     * @param {number} [channelId=-1] MIDI channel used for percussion-specific rendering.
+     * @returns {void}
+     */
     drawNotehead(cx, cy, color, isHollow, noteheadType = 'normal', channelId = -1) {
         const scale = 0.8;
         const rx = 7.0 * scale;
@@ -1176,6 +1355,18 @@ class MusicXMLPDFRenderer {
         }
     }
 
+    /**
+     * Draws an ellipse using PDF path commands.
+     *
+     * @param {number} cx Center x-coordinate.
+     * @param {number} cy Center y-coordinate.
+     * @param {number} rx Horizontal radius.
+     * @param {number} ry Vertical radius.
+     * @param {boolean} fill Whether the ellipse should be filled.
+     * @param {string|boolean} stroke Stroke mode.
+     * @param {number} [angle=0] Rotation angle in degrees.
+     * @returns {void}
+     */
     drawSVGEllipse(cx, cy, rx, ry, fill, stroke, angle) {
         const k = this.doc.internal.scaleFactor;
         const h = this.doc.internal.pageSize.height;
@@ -1211,6 +1402,15 @@ class MusicXMLPDFRenderer {
         this.doc.internal.write(pdfCmds + op);
     }
 
+    /**
+     * Draws ledger lines for notes outside the main staff range.
+     *
+     * @param {number} x X-position of the notehead.
+     * @param {number} y Staff starting y-position.
+     * @param {number} diatonic Diatonic pitch index of the note.
+     * @param {string} clefType Current clef name.
+     * @returns {void}
+     */
     drawLedgerLines(x, y, diatonic, clefType) {
         let lineMin, lineMax;
         if (clefType === "F") {
@@ -1240,16 +1440,40 @@ class MusicXMLPDFRenderer {
         }
     }
 
+    /**
+     * Draws one horizontal ledger line.
+     *
+     * @param {number} x X-position center for the ledger line.
+     * @param {number} lineY Y-position of the ledger line.
+     * @returns {void}
+     */
     drawHorizontalLedger(x, lineY) {
         this.doc.setDrawColor(...this.engraverColor);
         this.doc.setLineWidth(0.9);
         this.doc.line(x - 11, lineY, x + 11, lineY);
     }
 
+    /**
+     * Draws a dot for dotted note values.
+     *
+     * @param {number} x X-position of the dot.
+     * @param {number} y Y-position of the dot.
+     * @param {number[]} color RGB color array.
+     * @returns {void}
+     */
     drawDot(x, y, color) {
         this.drawCircle(x, y, 1.5, color, 'F');
     }
 
+    /**
+     * Draws a rest symbol matching the note duration.
+     *
+     * @param {number} x X-position for the rest.
+     * @param {number} y Top y-position of the staff.
+     * @param {string} type Rest type such as whole, half, quarter, eighth, 16th, or 32nd.
+     * @param {number[]} color RGB color array.
+     * @returns {void}
+     */
     drawRestSymbol(x, y, type, color) {
         this.doc.setFillColor(...color);
         const w = 12;
@@ -1299,12 +1523,27 @@ class MusicXMLPDFRenderer {
         }
     }
 
+    /**
+     * Converts a pitch step and octave into a diatonic staff index.
+     *
+     * @param {string} step Pitch letter such as C, D, E, etc.
+     * @param {number} octave Octave number.
+     * @returns {number} Diatonic index relative to middle C.
+     */
     getDiatonicIndex(step, octave) {
         const offset = this.stepOffsets[step] !== undefined ? this.stepOffsets[step] : 0;
         const oct = typeof octave === "number" && !isNaN(octave) ? octave : 4;
         return (oct - 4) * 7 + offset;
     }
 
+    /**
+     * Computes the vertical y-position for a note on a given clef.
+     *
+     * @param {number} diatonic Diatonic pitch index.
+     * @param {number} startY Staff starting y-position.
+     * @param {string} clefType Current clef name.
+     * @returns {number} Y-coordinate for the note.
+     */
     getNoteY(diatonic, startY, clefType) {
         const ls = this.lineSpacing / 2;
         if (clefType === "F") {
@@ -1316,6 +1555,20 @@ class MusicXMLPDFRenderer {
         }
     }
 
+    /**
+     * Draws a text label using the configured PDF font settings.
+     *
+     * @param {number} x X-position of the text.
+     * @param {number} y Y-position of the text.
+     * @param {string} text Text content to display.
+     * @param {number} size Font size.
+     * @param {number[]} color RGB color array.
+     * @param {string} [align='left'] Horizontal alignment.
+     * @param {boolean} [isBold=false] Whether the font should be bold.
+     * @param {string} [font=this.FONT_SANS_SERIF] Font family name.
+     * @param {number} [rotation=0] Rotation in degrees.
+     * @returns {void}
+     */
     drawText(x, y, text, size, color, align = "left", isBold = false, font = this.FONT_SANS_SERIF, rotation = 0) {
         this.doc.setFont(font, isBold ? 'bold' : 'normal');
         this.doc.setFontSize(size);
@@ -1326,6 +1579,20 @@ class MusicXMLPDFRenderer {
     // ============================================================
     // SVG PATH PARSER → jsPDF
     // ============================================================
+    /**
+     * Converts an SVG elliptical arc to a sequence of cubic Bézier segments.
+     *
+     * @param {number} x1 Start x-coordinate.
+     * @param {number} y1 Start y-coordinate.
+     * @param {number} rx X-radius of the ellipse.
+     * @param {number} ry Y-radius of the ellipse.
+     * @param {number} angle Rotation angle in degrees.
+     * @param {boolean|number} largeArcFlag Whether the large arc flag is set.
+     * @param {boolean|number} sweepFlag Whether the sweep flag is set.
+     * @param {number} x2 End x-coordinate.
+     * @param {number} y2 End y-coordinate.
+     * @returns {Array<Array<number>>} Cubic-bezier control points for the arc.
+     */
     arcToCubicBezier(x1, y1, rx, ry, angle, largeArcFlag, sweepFlag, x2, y2) {
         if (rx === 0 || ry === 0) return [];
         rx = Math.abs(rx);
@@ -1397,6 +1664,19 @@ class MusicXMLPDFRenderer {
         return curves;
     }
 
+    /**
+     * Parses an SVG path string and draws it into the PDF canvas.
+     *
+     * @param {string} pathStr SVG path definition.
+     * @param {number} xOffset Horizontal translation.
+     * @param {number} yOffset Vertical translation.
+     * @param {number} scaleX X scale factor.
+     * @param {number} scaleY Y scale factor.
+     * @param {boolean} [fill=true] Whether to fill the path.
+     * @param {string|boolean} [stroke='solid'] Stroke mode.
+     * @param {number} [rotation=0] Rotation angle in degrees.
+     * @returns {void}
+     */
     drawSVGPath(pathStr, xOffset, yOffset, scaleX, scaleY, fill = true, stroke = 'solid', rotation = 0) {
         const tokens = pathStr.match(/[a-zA-Z]|-?\d*\.?\d+/g) || [];
         const k = this.doc.internal.scaleFactor;
@@ -1579,6 +1859,13 @@ class MusicXMLPDFRenderer {
         { name: '64th', val: 0.015625 }, { name: '128th', val: 0.0078125 }
     ];
 
+    /**
+     * Maps a musical duration into the closest note type name.
+     *
+     * @param {number} duration Duration value in ticks.
+     * @param {number} divisions Divisions per quarter note.
+     * @returns {string} Equivalent note type label.
+     */
     static getNoteType(duration, divisions) {
         if (divisions <= 0 || duration <= 0) return '128th';
         const value = duration / (4 * divisions);
@@ -1590,6 +1877,13 @@ class MusicXMLPDFRenderer {
         return '128th';
     }
 
+    /**
+     * Determines whether a duration is already a standard MusicXML note value.
+     *
+     * @param {number} duration Duration value in ticks.
+     * @param {number} divisions Divisions per quarter note.
+     * @returns {boolean} True if the duration is standard or dotted-standard.
+     */
     static isStandardDuration(duration, divisions) {
         if (duration <= 0 || divisions <= 0) return false;
         const value = duration / (4 * divisions);
@@ -1603,6 +1897,13 @@ class MusicXMLPDFRenderer {
         return false;
     }
 
+    /**
+     * Splits a non-standard duration into representable note values.
+     *
+     * @param {number} duration Duration value in ticks.
+     * @param {number} divisions Divisions per quarter note.
+     * @returns {number[]} Array of representable duration chunks.
+     */
     static splitDurationIntoRepresentablePieces(duration, divisions) {
         const pieces = [];
         let remaining = duration;
@@ -1644,6 +1945,13 @@ class MusicXMLPDFRenderer {
         return pieces;
     }
 
+    /**
+     * Counts how many dots should be applied to a note value.
+     *
+     * @param {number} duration Duration value in ticks.
+     * @param {number} divisions Divisions per quarter note.
+     * @returns {number} Number of dots required for the duration.
+     */
     static getDotCount(duration, divisions) {
         if (duration <= 0 || divisions <= 0) return 0;
         const value = duration / (4 * divisions);
