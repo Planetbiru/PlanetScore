@@ -1468,7 +1468,7 @@ class MusicXMLSVGRenderer {
                     // Segmen 1: berakhir TEPAT di garis birama kanan sistem lama
                     // ==============================================================
                     const systemRightX = this.currentSystemRightX ?? (prev.x + 22 * scale);
-                    const endX1 = systemRightX;                 // <- tepat di barline (sebelumnya +8*scale)
+                    const endX1 = systemRightX;
 
                     const cx1 = (prev.x + endX1) / 2;
                     const cy1 = sy1 + (stemDown ? -curveHeight : curveHeight);
@@ -1481,13 +1481,16 @@ class MusicXMLSVGRenderer {
                     path1.classList.add("tie-curve");
                     path1.setAttribute("data-start-tick", tieStartTick);
                     path1.setAttribute("data-end-tick",   tieEndTick);
-                    this.svg.appendChild(path1);
+
+                    // ==== PERBAIKAN: append ke system group MILIK NOTE AWAL ====
+                    const targetSystem1 = prev.systemGroup || this.svg;
+                    targetSystem1.appendChild(path1);
 
                     // ==============================================================
                     // Segmen 2: dimulai TEPAT di garis birama kiri sistem baru
                     // ==============================================================
                     const systemLeftX = this.currentSystemLeftX ?? (x - 40 * scale);
-                    const startX2 = systemLeftX;                // <- tepat di barline (sebelumnya -8*scale)
+                    const startX2 = systemLeftX;
 
                     const cx2 = (startX2 + x) / 2;
                     const cy2 = sy2 + (stemDown ? -curveHeight : curveHeight);
@@ -1500,6 +1503,8 @@ class MusicXMLSVGRenderer {
                     path2.classList.add("tie-curve");
                     path2.setAttribute("data-start-tick", tieStartTick);
                     path2.setAttribute("data-end-tick",   tieEndTick);
+
+                    // Path2 tetap di sistem sekarang
                     this.svg.appendChild(path2);
                 } else {
                     // Tie normal: lengkungan proporsional dengan jarak antar-note
@@ -1525,7 +1530,10 @@ class MusicXMLSVGRenderer {
                     x: x,
                     y: note.y,
                     startTick: startTick,
-                    endTick:   startTick + note.duration
+                    endTick:   startTick + note.duration,
+                    // Simpan referensi ke system group tempat note awal berada.
+                    // originalSvg = measureGroup; measureGroup berada di dalam system group.
+                    systemGroup: originalSvg.closest('g[data-system-number]') || null
                 };
             }
         });
