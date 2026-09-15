@@ -39,6 +39,32 @@ python -m http.server 8000
 
 Then open <http://localhost:8000>.
 
+## MIDI Player Integration
+
+The rendered score can be integrated with a MIDI player so the notation stays synchronized with playback. The SVG renderer exposes a moving playhead and active note highlighting that are driven by the current MIDI tick, allowing the score to follow the player in real time.
+
+This is useful for applications such as karaoke-style practice, guided learning, or performance visualization. The score can update the playhead position, scroll the current system into view, and highlight currently active notes while the MIDI track is playing.
+
+Example flow:
+
+```js
+player.on('onPlaying', (tick) => {
+    const pos = midi.header.tickToPosition(tick);
+    const measure = Math.floor(player.tickToMeasure(tick));
+
+    renderer.updatePlayhead(tick, pos, scoreContainer.parentNode, {
+        scroll: true,
+        scrollOffset: -20
+    });
+
+    renderer.highlightActiveNotes(tick, measure, {
+        highlight: true
+    });
+});
+```
+
+This makes the score and MIDI player work as a single synchronized playback experience without reloading the score when the player time changes.
+
 ## Processing Pipeline
 
 ```text

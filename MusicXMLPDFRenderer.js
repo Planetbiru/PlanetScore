@@ -561,6 +561,10 @@ class MusicXMLPDFRenderer {
             const lineY = y + i * this.lineSpacing;
             this.doc.line(x, lineY, x + width, lineY);
         }
+
+        // === BARU: simpan batas kiri/kanan sistem untuk tie antar-sistem ===
+        this.currentSystemLeftX  = x;
+        this.currentSystemRightX = x + width;
     }
 
     drawSystemStartLine(x, y, totalSystemHeight) {
@@ -821,41 +825,70 @@ class MusicXMLPDFRenderer {
                 const sy2 = note.y + yOffset;
 
                 const isCrossSystem = (x <= prev.x) || (Math.abs(prev.y - note.y) > 50);
+                const thickness = 3.3;
+                const span = Math.abs(x - prev.x);
+                const curveHeight = Math.min(22, Math.max(8, span * 0.35));
 
                 if (isCrossSystem) {
-                    const thickness = 3.3;
-                    const endX1 = prev.x + 22;
-                    const cx1 = prev.x + 11;
-                    const cy1 = sy1 + (stemDown ? -11 : 11);
-                    const d1 = `M ${prev.x} ${sy1} Q ${cx1} ${cy1} ${endX1} ${sy1} Q ${cx1} ${cy1 - (stemDown ? -thickness : thickness)} ${prev.x} ${sy1} Z`;
+                    const currentPage = this.doc.getCurrentPageInfo().pageNumber;
+                    const prevPage    = prev.pageNumber;
+
+                    // ============================================================
+                    // SEGMEN 1 — digambar di HALAMAN SEBELUMNYA
+                    // ============================================================
+                    if (prevPage !== undefined && prevPage !== currentPage) {
+                        this.doc.setPage(prevPage);
+                    }
+
+                    // Pakai systemRightX yang disimpan saat tieStart, bukan this.currentSystemRightX
+                    // (nilai ini sudah ditimpa oleh drawStaffLines sistem baru)
+                    const systemRightX = prev.systemRightX ?? (prev.x + 22);
+                    const endX1 = systemRightX;
+                    const cx1   = (prev.x + endX1) / 2;
+                    const cy1   = sy1 + (stemDown ? -curveHeight : curveHeight);
+
+                    const d1 = `M ${prev.x} ${sy1} Q ${cx1} ${cy1} ${endX1} ${sy1} ` +
+                            `Q ${cx1} ${cy1 - (stemDown ? -thickness : thickness)} ${prev.x} ${sy1} Z`;
                     this.doc.setFillColor(...this.engraverColor);
                     this.drawSVGPath(d1, 0, 0, 1, 1, true, 'none');
 
-                    const startX2 = x - 22;
-                    const cx2 = x - 11;
-                    const cy2 = sy2 + (stemDown ? -11 : 11);
-                    const d2 = `M ${startX2} ${sy2} Q ${cx2} ${cy2} ${x} ${sy2} Q ${cx2} ${cy2 - (stemDown ? -thickness : thickness)} ${startX2} ${sy2} Z`;
+                    // Kembali ke halaman sekarang
+                    if (prevPage !== undefined && prevPage !== currentPage) {
+                        this.doc.setPage(currentPage);
+                    }
+
+                    // ============================================================
+                    // SEGMEN 2 — digambar di HALAMAN SEKARANG
+                    // ============================================================
+                    const systemLeftX = this.currentSystemLeftX ?? (x - 40);
+                    const startX2 = systemLeftX;
+                    const cx2 = (startX2 + x) / 2;
+                    const cy2 = sy2 + (stemDown ? -curveHeight : curveHeight);
+
+                    const d2 = `M ${startX2} ${sy2} Q ${cx2} ${cy2} ${x} ${sy2} ` +
+                            `Q ${cx2} ${cy2 - (stemDown ? -thickness : thickness)} ${startX2} ${sy2} Z`;
                     this.doc.setFillColor(...this.engraverColor);
                     this.drawSVGPath(d2, 0, 0, 1, 1, true, 'none');
                 } else {
-                    const thickness = 3.3;
                     const cx = (prev.x + x) / 2;
-                    const cy = ((sy1 + sy2) / 2) + (stemDown ? -12 : 12);
-                    const d = `M ${prev.x} ${sy1} Q ${cx} ${cy} ${x} ${sy2} Q ${cx} ${cy - (stemDown ? -thickness : thickness)} ${prev.x} ${sy1} Z`;
+                    const cy = ((sy1 + sy2) / 2) + (stemDown ? -curveHeight : curveHeight);
+
+                    const d = `M ${prev.x} ${sy1} Q ${cx} ${cy} ${x} ${sy2} ` +
+                            `Q ${cx} ${cy - (stemDown ? -thickness : thickness)} ${prev.x} ${sy1} Z`;
                     this.doc.setFillColor(...this.engraverColor);
                     this.drawSVGPath(d, 0, 0, 1, 1, true, 'none');
                 }
-
-                //delete activeTies[pitchKey];
             }
 
             if (tieStart) {
                 activeTies[pitchKey] = { 
                     x: x, 
                     y: note.y,
-                    pageNumber: this.doc.getCurrentPageInfo().pageNumber
+                    pageNumber:    this.doc.getCurrentPageInfo().pageNumber,
+                    systemRightX:  this.currentSystemRightX  // <-- simpan untuk segmen 1 di sistem berikutnya
                 };
             }
+
         });
 
         // Stem & flag

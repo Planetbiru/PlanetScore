@@ -923,6 +923,10 @@ class MusicXMLSVGRenderer {
             line.setAttribute("stroke-width", `${0.95 * this.zoom}`);
             this.svg.appendChild(line);
         }
+
+        // === BARU: simpan batas kiri/kanan sistem untuk tie antar-sistem ===
+        this.currentSystemLeftX  = x;
+        this.currentSystemRightX = x + width;
     }
 
     /**
@@ -1419,33 +1423,49 @@ class MusicXMLSVGRenderer {
                 // System boundary check (x <= prev.x or Y distance > 50*scale)
                 const isCrossSystem = (x <= prev.x) || (Math.abs(prev.y - note.y) > 50 * scale);
 
+                // Tinggi lengkungan tie: minimum 8px, maksimum 22px, proporsional dengan jarak
+                const span = Math.abs(x - prev.x);
+                const curveHeight = Math.min(22, Math.max(8, span * 0.35)) * scale;
+                const thickness = 3.3 * scale;
+
                 if (isCrossSystem) {
-                    // Curved tie ending at right edge of start system line
-                    const thickness = 3.3 * scale;
+                    // ==============================================================
+                    // Segmen 1: berakhir TEPAT di garis birama kanan sistem lama
+                    // ==============================================================
+                    const systemRightX = this.currentSystemRightX ?? (prev.x + 22 * scale);
+                    const endX1 = systemRightX;                 // <- tepat di barline (sebelumnya +8*scale)
+
+                    const cx1 = (prev.x + endX1) / 2;
+                    const cy1 = sy1 + (stemDown ? -curveHeight : curveHeight);
+
                     const path1 = document.createElementNS("http://www.w3.org/2000/svg", "path");
-                    const endX1 = prev.x + 22 * scale;
-                    const cx1 = prev.x + 11 * scale;
-                    const cy1 = sy1 + (stemDown ? -11 : 11) * scale;
-                    const d1 = `M ${prev.x} ${sy1} Q ${cx1} ${cy1} ${endX1} ${sy1} Q ${cx1} ${cy1 - (stemDown ? -thickness : thickness)} ${prev.x} ${sy1} Z`;
+                    const d1 = `M ${prev.x} ${sy1} Q ${cx1} ${cy1} ${endX1} ${sy1} ` +
+                            `Q ${cx1} ${cy1 - (stemDown ? -thickness : thickness)} ${prev.x} ${sy1} Z`;
                     path1.setAttribute("d", d1);
                     path1.setAttribute("fill", this.engraverColor);
                     path1.classList.add("tie-curve");
                     this.svg.appendChild(path1);
 
-                    // Curved tie starting from left edge of stop system line
+                    // ==============================================================
+                    // Segmen 2: dimulai TEPAT di garis birama kiri sistem baru
+                    // ==============================================================
+                    const systemLeftX = this.currentSystemLeftX ?? (x - 40 * scale);
+                    const startX2 = systemLeftX;                // <- tepat di barline (sebelumnya -8*scale)
+
+                    const cx2 = (startX2 + x) / 2;
+                    const cy2 = sy2 + (stemDown ? -curveHeight : curveHeight);
+
                     const path2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
-                    const startX2 = x - 22 * scale;
-                    const cx2 = x - 11 * scale;
-                    const cy2 = sy2 + (stemDown ? -11 : 11) * scale;
-                    const d2 = `M ${startX2} ${sy2} Q ${cx2} ${cy2} ${x} ${sy2} Q ${cx2} ${cy2 - (stemDown ? -thickness : thickness)} ${startX2} ${sy2} Z`;
+                    const d2 = `M ${startX2} ${sy2} Q ${cx2} ${cy2} ${x} ${sy2} ` +
+                            `Q ${cx2} ${cy2 - (stemDown ? -thickness : thickness)} ${startX2} ${sy2} Z`;
                     path2.setAttribute("d", d2);
                     path2.setAttribute("fill", this.engraverColor);
                     path2.classList.add("tie-curve");
                     this.svg.appendChild(path2);
                 } else {
-                    const thickness = 3.3 * scale;
+                    // Tie normal: lengkungan proporsional dengan jarak antar-note
                     const cx = (prev.x + x) / 2;
-                    const cy = ((sy1 + sy2) / 2) + (stemDown ? -12 : 12) * scale;
+                    const cy = ((sy1 + sy2) / 2) + (stemDown ? -curveHeight : curveHeight);
 
                     tiePath = document.createElementNS("http://www.w3.org/2000/svg", "path");
                     const d = `M ${prev.x} ${sy1} Q ${cx} ${cy} ${x} ${sy2} Q ${cx} ${cy - (stemDown ? -thickness : thickness)} ${prev.x} ${sy1} Z`;
