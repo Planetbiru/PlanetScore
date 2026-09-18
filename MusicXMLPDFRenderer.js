@@ -25,7 +25,19 @@ class MusicXMLPDFRenderer {
 
         this.PAGE_WIDTH = this.doc.internal.pageSize.getWidth();
         this.PAGE_HEIGHT = this.doc.internal.pageSize.getHeight();
-        this.MARGIN = 40;
+        // Margin lama (dipakai sebagai fallback / legacy)
+        const defaultMargin = options.margin ?? 40;
+        this.MARGIN = defaultMargin;
+
+        // Margin 4 sisi yang bisa diatur terpisah
+        this.marginTop         = options.marginTop         ?? defaultMargin;
+        this.marginRight       = options.marginRight       ?? defaultMargin;
+        this.marginBottom      = options.marginBottom      ?? defaultMargin;
+        this.marginLeft        = options.marginLeft        ?? defaultMargin;
+
+        // Khusus halaman ke-2 dst. Default: sedikit lebih lega dari halaman 1
+        // supaya tidak terasa sempit setelah title block hilang.
+        this.marginTopOtherPages = options.marginTopOtherPages ?? (this.marginTop + 12);
 
         this.baseLineSpacing = 8;
         this.baseStaffSpacing = options.staffSpacing ?? 80;
@@ -33,7 +45,11 @@ class MusicXMLPDFRenderer {
         this.partSpacing = options.partSpacing ?? 80;
         this.systemSpacing = options.systemSpacing ?? 80;
         this.measuresPerLine = 3;
-        this.liricYOffset = 60;
+        // Jarak baseline lirik dari garis atas staff.
+        // Standar: 36–42 pt untuk lineSpacing 8.
+        this.liricYOffset = options.liricYOffset ?? 60
+
+        // Gap dari metadata (part name / composer) ke sistem pertama.
 
         this.engraverColor = [15, 23, 42];
         this.staffLineColor = [71, 85, 105];
@@ -47,6 +63,16 @@ class MusicXMLPDFRenderer {
         this.FONT_SERIF = 'times';
         this.lyricFontSize = options.lyricFontSize ?? 10;
         this.lyricFontFamily = options.lyricFontFamily ?? 'sans-serif';
+
+        this.stemLength = options.stemLength ?? 24;
+
+        this.selectedChannels = Array.isArray(options.selectedChannels) ? options.selectedChannels : null;
+        this.selectedTrack = Array.isArray(options.selectedTrack) ? options.selectedTrack : null;
+        this.compressSilentMeasure = options.compressSilentMeasure === true;
+        this.showPageNumbers = options.showPageNumbers !== false; // default true
+        this.pageNumberColor = options.pageNumberColor ?? [100, 116, 139]; // subtitleColor
+        this.pageNumberMarginBottom = options.pageNumberMarginBottom ?? 18;
+        this.firstSystemGap = options.firstSystemGap;
     }
 
     /**
@@ -87,7 +113,18 @@ class MusicXMLPDFRenderer {
         });
 
         const maxMeasureNumber = Math.max(1, ...partMeasures.flatMap(mList => mList.map(m => parseInt(m.getAttribute("number") || "1", 10) || 1)));
-        const totalMeasures = maxMeasureNumber;
+        let totalMeasures = maxMeasureNumber;
+        const isSinglePart = this.isSinglePartRender(parts);
+        const useCompression = this.compressSilentMeasure && isSinglePart;
+        let renderMeasures = null;
+
+        if (useCompression) {
+            renderMeasures = this.buildCompressedMeasureList(
+                partMeasureMap[0],
+                totalMeasures
+            );
+            totalMeasures = renderMeasures.length;
+        }
 
         const partStaffMap = [];
         let totalSystemStaves = 0;
@@ -107,9 +144,11 @@ class MusicXMLPDFRenderer {
             totalSystemStaves += numStaves;
         });
 
+        
+
         const hasLyrics = xmlDoc.querySelector("lyric") !== null;
         // Hitung measures per line berdasarkan lebar halaman
-        const availableWidth = this.PAGE_WIDTH - (this.MARGIN * 2) - 60; // 60 = space untuk clef+key+time
+        const availableWidth = this.PAGE_WIDTH - this.marginLeft - this.marginRight - 60; // 60 = space untuk clef+key+time
         const MIN_MEASURE_WIDTH = 150;
         const IDEAL_MEASURE_WIDTH = hasLyrics ? 200 : 220;
         let mpl = Math.floor(availableWidth / IDEAL_MEASURE_WIDTH);
@@ -128,8 +167,23 @@ class MusicXMLPDFRenderer {
         }
         if (totalSystemStaves === 0) calculatedStaffSystemHeight = staffHeight;
 
-        const lyricPadding = hasLyrics ? (this.liricYOffset + 20) * scale : 0;
-        this.rowSpacing = calculatedStaffSystemHeight + lyricPadding + this.systemSpacing * scale;
+        // Hanya sisakan ruang untuk lirik (tanpa +20 ekstra).
+        // +6 sebagai margin aman agar descender huruf tidak menyentuh sistem berikutnya.
+        // Ruang ekstra di bawah staff yang dibutuhkan lirik.
+        // liricYOffset = 60, staffHeight = 32 → extra = 28.
+        // Tambah buffer 6pt untuk descender huruf (g, j, p, q, y).
+        const staffBottomExtra = Math.max(0, this.liricYOffset - (4 * this.lineSpacing) + 6);
+
+        // Sistem dengan lirik butuh gap berbeda dari sistem instrumental.
+        const spacingForThisSystem = hasLyrics
+            ? (this.lyricsSystemSpacing ?? this.systemSpacing)
+            : this.systemSpacing;
+
+        const lyricPadding = hasLyrics ? staffBottomExtra * scale : 0;
+
+        this.rowSpacing = calculatedStaffSystemHeight
+                        + lyricPadding
+                        + spacingForThisSystem * scale;
 
         const songTitle = xmlDoc.querySelector("work-title")?.textContent || "Untitled Score";
         const composer = xmlDoc.querySelector("creator[type='composer']")?.textContent || "";
@@ -144,7 +198,7 @@ class MusicXMLPDFRenderer {
             partDetails[pInfo.partIndex] = { name, abbr };
         });
 
-        let currentY = this.MARGIN + 20;
+        let currentY = this.marginTop + 20;
 
         // Judul (center)
         this.drawText(
@@ -167,7 +221,7 @@ class MusicXMLPDFRenderer {
         // Composer (kanan)
         if (composer) {
             this.drawText(
-                this.PAGE_WIDTH - this.MARGIN,
+                this.PAGE_WIDTH - this.marginRight,
                 metadataY,
                 composer,
                 11,
@@ -180,7 +234,7 @@ class MusicXMLPDFRenderer {
 
         // Part Name / Instrument (kiri)
         this.drawText(
-            this.MARGIN,
+            this.marginLeft,
             metadataY,
             partName,
             12,
@@ -193,10 +247,10 @@ class MusicXMLPDFRenderer {
         // Geser currentY ke posisi berikutnya (sebelum sistem pertama)
         currentY += 7;   // sisa 7 untuk mencapai total +22 dari judul
 
-        currentY += 80;
-        const leftMargin = this.MARGIN + 45;
-        const rightMargin = this.MARGIN;
-        const systemStartX = this.MARGIN;
+        currentY += this.firstSystemGap;
+        const leftMargin = this.marginLeft + 45;
+        const rightMargin = this.marginRight;
+        const systemStartX = this.marginLeft;
         const usableWidth = this.PAGE_WIDTH - leftMargin - rightMargin;
         const measureWidth = Math.max(220, usableWidth / this.measuresPerLine);
 
@@ -211,9 +265,14 @@ class MusicXMLPDFRenderer {
 
         for (let measureIdx = 0; measureIdx < totalMeasures; measureIdx++) {
             const isSystemStart = (measureIdx % this.measuresPerLine === 0);
+            const renderMeasure = renderMeasures ? renderMeasures[measureIdx] : null;
+            const displayMeasureNumber = renderMeasure ? renderMeasure.number : measureIdx + 1;
 
             partStaffMap.forEach(pInfo => {
-                const mNode = partMeasureMap[pInfo.partIndex].get(measureIdx + 1);
+                const mNode = renderMeasure
+                    ? renderMeasure.node
+                    : partMeasureMap[pInfo.partIndex].get(measureIdx + 1);
+
                 if (!mNode) return;
                 const attrNode = mNode.querySelector("attributes");
                 if (attrNode) {
@@ -243,9 +302,9 @@ class MusicXMLPDFRenderer {
 
             if (isSystemStart) {
                 if (measureIdx > 0) {
-                    if (currentY + this.rowSpacing > this.PAGE_HEIGHT - this.MARGIN) {
+                    if (currentY + this.rowSpacing > this.PAGE_HEIGHT - this.marginBottom) {
                         this.doc.addPage();
-                        currentY = this.MARGIN;
+                        currentY = this.marginTopOtherPages;
                     } else {
                         currentY += this.rowSpacing;
                     }
@@ -318,7 +377,7 @@ class MusicXMLPDFRenderer {
                     braceYOffset += partHeight + (index < partStaffMap.length - 1 ? this.partSpacing * scale : 0);
                 });
 
-                this.drawText(systemStartX, currentY - 14, `${measureIdx + 1}`, 10, this.subtitleColor, "left", true, this.FONT_SANS_SERIF);
+                this.drawText(systemStartX, currentY - 14, `${displayMeasureNumber}`, 10, this.subtitleColor, "left", true, this.FONT_SANS_SERIF);
             }
 
             const isLastMeasureInScore = (measureIdx === totalMeasures - 1);
@@ -360,8 +419,22 @@ class MusicXMLPDFRenderer {
                 const sY = currentY + currentStaffYOffset;
 
                 const state = staffState[s];
-                const mNode = partMeasureMap[pInfo.partIndex].get(measureIdx + 1);
-                if (!mNode) continue;
+                const mNode = renderMeasure
+                    ? renderMeasure.node
+                    : partMeasureMap[pInfo.partIndex].get(measureIdx + 1);
+
+                if (!mNode) {
+                    if (renderMeasure && renderMeasure.compressedCount > 0) {
+                        this.drawMultiMeasureRest(currentX, sY, measureWidth, renderMeasure.compressedCount);
+                    }
+
+                    currentStaffYOffset += (4 * this.lineSpacing);
+                    if (localStaff < pInfo.numStaves) {
+                        currentStaffYOffset += this.staffSpacing * scale;
+                    }
+                    previousPartIndex = pInfo.partIndex;
+                    continue;
+                }
 
                 let measureDuration = state.beats * state.divisions;
                 let currentDiv = 0;
@@ -600,6 +673,7 @@ class MusicXMLPDFRenderer {
             }
 
             currentX += measureWidth;
+            this.drawPageNumbers();
         }
     }
 
@@ -1085,7 +1159,7 @@ class MusicXMLPDFRenderer {
         const isBeamable = firstNoteType === "eighth" || firstNoteType === "16th" || firstNoteType === "32nd";
 
         if (firstNoteType !== "whole") {
-            const stemLength = 28;
+            const stemLength = Math.max(18, this.lineSpacing * 3);
             const noteheadRx = 7.0 * 0.8;      // ≈ 5.6
             const stemOffset = noteheadRx * 0.85; // ≈ 4.76
             stemX = stemDown ? x - stemOffset : x + stemOffset;
@@ -1977,6 +2051,157 @@ class MusicXMLPDFRenderer {
         const type = this.NOTE_TYPE_VALUES.find(item => item.name === noteType);
         if (!type) return 0;
         return Math.abs(value - type.val * 1.5) < 0.001 ? 1 : 0;
+    }
+
+    /**
+     * Menentukan apakah render ini hanya untuk 1 part.
+     *
+     * @param {Array<Element>} parts Daftar node <part> dari XML.
+     * @returns {boolean}
+     */
+    isSinglePartRender(parts) {
+        if (Array.isArray(this.selectedChannels) && this.selectedChannels.length === 1) return true;
+        if (Array.isArray(this.selectedTrack) && this.selectedTrack.length === 1) return true;
+        return parts.length === 1;
+    }
+
+    /**
+     * Mengecek apakah sebuah measure benar-benar silent / hanya berisi rest.
+     *
+     * @param {Element} mNode Node <measure>.
+     * @returns {boolean}
+     */
+    isMeasureSilent(mNode) {
+        if (!mNode) return true;
+
+        const notes = mNode.querySelectorAll("note");
+        if (notes.length === 0) return true;
+
+        return Array.from(notes).every(n => n.querySelector("rest") !== null);
+    }
+
+    /**
+     * Membuat daftar measure yang sudah dikompres.
+     * Semua measure diam berurutan digabung menjadi satu blok multi-rest.
+     *
+     * @param {Map<number, Element>} measureMap Map nomor measure -> node measure.
+     * @param {number} totalMeasures Jumlah measure asli.
+     * @returns {Array<Object>}
+     */
+    buildCompressedMeasureList(measureMap, totalMeasures) {
+        const list = [];
+        let i = 1;
+
+        while (i <= totalMeasures) {
+            const node = measureMap.get(i);
+
+            if (node && this.isMeasureSilent(node)) {
+                let j = i;
+                while (j <= totalMeasures) {
+                    const nextNode = measureMap.get(j);
+                    if (!nextNode || !this.isMeasureSilent(nextNode)) break;
+                    j++;
+                }
+
+                const block = j - i;
+
+                if (block >= 2) {
+                    list.push({
+                        number: i,
+                        node: null,
+                        compressedCount: block,
+                        originalStart: i,
+                        originalEnd: j - 1
+                    });
+                } else {
+                    list.push({
+                        number: i,
+                        node: measureMap.get(i),
+                        compressedCount: 0
+                    });
+                }
+
+                i = j;
+            } else {
+                list.push({
+                    number: i,
+                    node: node,
+                    compressedCount: 0
+                });
+                i++;
+            }
+        }
+
+        return list;
+    }
+
+    /**
+     * Menggambar multi-measure rest.
+     *
+     * @param {number} x X awal measure.
+     * @param {number} y Y atas staff.
+     * @param {number} width Lebar measure.
+     * @param {number} count Jumlah birama diam yang dikompres.
+     */
+    drawMultiMeasureRest(x, y, width, count) {
+        const midY = y + 2 * this.lineSpacing;
+        const barWidth = Math.min(width * 0.5, 120);
+        const startX = x + (width - barWidth) / 2;
+        const endX = startX + barWidth;
+
+        this.doc.setDrawColor(...this.engraverColor);
+        this.doc.setLineWidth(4);
+        this.doc.line(startX, midY, endX, midY);
+
+        this.doc.setLineWidth(1.2);
+        this.doc.line(startX, midY - 5, startX, midY + 5);
+        this.doc.line(endX, midY - 5, endX, midY + 5);
+
+        this.drawText(
+            (startX + endX) / 2,
+            midY - 9,
+            String(count),
+            11,
+            this.engraverColor,
+            "center",
+            true,
+            this.FONT_SERIF
+        );
+    }
+
+    /**
+     * Menambahkan nomor halaman "N of M" di sudut kanan bawah setiap halaman.
+     * Harus dipanggil setelah seluruh sistem selesai digambar.
+     *
+     * @returns {void}
+     */
+    drawPageNumbers() {
+        if (!this.showPageNumbers) return;
+
+        const totalPages = this.doc.getNumberOfPages();
+        if (totalPages < 1) return;
+
+        // Simpan halaman aktif saat ini
+        const restorePage = this.doc.getCurrentPageInfo().pageNumber;
+
+        const x = this.PAGE_WIDTH - this.MARGIN;
+        const y = this.PAGE_HEIGHT - this.pageNumberMarginBottom;
+
+        for (let p = 1; p <= totalPages; p++) {
+            this.doc.setPage(p);
+
+            // Bersihkan area kecil di belakang angka (anti tumpang-tindih)
+            this.doc.setFillColor(255, 255, 255);
+            this.doc.rect(x - 60, y - 10, 60, 14, 'F');
+
+            this.doc.setFont(this.FONT_SANS_SERIF, 'normal');
+            this.doc.setFontSize(9);
+            this.doc.setTextColor(...this.pageNumberColor);
+            this.doc.text(`${p} of ${totalPages}`, x, y, { align: 'right' });
+        }
+
+        // Kembalikan ke halaman terakhir
+        this.doc.setPage(restorePage);
     }
 }
 

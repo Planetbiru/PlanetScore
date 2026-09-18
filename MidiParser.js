@@ -514,7 +514,6 @@ class MidiParser {
              * @returns {number} return.ticksPerBeat - Number of ticks per beat under current signature.
              * @returns {number} return.ticksPerMeasure - Number of ticks per measure under current signature.
              */
-
             tickToPosition(targetTick) {
                 targetTick = Math.max(0, Math.round(targetTick));
 

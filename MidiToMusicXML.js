@@ -106,14 +106,14 @@ class MidiToMusicXML {
         // FILTER TRACK — terima number (single) ATAU array (multiple)
         // Meta track (track tanpa note) SELALU dipertahankan.
         // ============================================================
-        if (opts.selectedTrack != null) {
+        if (opts.selectedTracks != null) {
             let trackIndices = [];
-            if (Array.isArray(opts.selectedTrack)) {
-                trackIndices = opts.selectedTrack.filter(
+            if (Array.isArray(opts.selectedTracks)) {
+                trackIndices = opts.selectedTracks.filter(
                     i => Number.isInteger(i) && i >= 0 && i < parsed.tracks.length
                 );
-            } else if (typeof opts.selectedTrack === 'number') {
-                const i = opts.selectedTrack;
+            } else if (typeof opts.selectedTracks === 'number') {
+                const i = opts.selectedTracks;
                 if (i >= 0 && i < parsed.tracks.length) trackIndices = [i];
             }
 
