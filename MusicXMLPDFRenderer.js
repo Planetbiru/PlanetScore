@@ -258,9 +258,9 @@ class MusicXMLPDFRenderer {
             metadataY,
             partName,
             12,
-            this.subtitleColor,
+            this.engraverColor,
             "left",
-            true,
+            false,
             this.FONT_SANS_SERIF
         );
 

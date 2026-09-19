@@ -83,7 +83,7 @@ class MusicXMLSVGRenderer {
         this.engraverColor = "#0f172a"; // Solid dark engraver ink
         this.staffLineColor = "#475569"; // Crisp staff line
         this.lightLineColor = "#cbd5e1"; // Measure divider
-        this.paperBg = "#ffffff";
+        this.paperBg = options.paperBg ?? "#ffffff";
 
         // Educational Pitch Color Palette
         this.pitchColors = {
@@ -326,9 +326,9 @@ class MusicXMLSVGRenderer {
             metadataY,
             partName,
             `${Math.round(12 * scale)}px`,
-            "#475569",
+            "#000000",
             "start",
-            true,
+            false,
             "'Inter', sans-serif"
         );
         
