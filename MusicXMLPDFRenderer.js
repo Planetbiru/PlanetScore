@@ -73,6 +73,22 @@ class MusicXMLPDFRenderer {
         this.pageNumberColor = options.pageNumberColor ?? [100, 116, 139]; // subtitleColor
         this.pageNumberMarginBottom = options.pageNumberMarginBottom ?? 18;
         this.firstSystemGap = options.firstSystemGap;
+
+        this.autoClef = options.autoClef !== false;
+        this.allowAltoClef = options.allowAltoClef === true;
+
+        // Ambang batas swap clef (dalam satuan diatonic step).
+        // Semakin tinggi nilainya, semakin agresif swap ke bass.
+        // Referensi diatonic: C4=0, E4=2, G4=4, B4=6 (tengah treble), D3=-6 (tengah bass).
+        //
+        // Default 4 (setara G4): melody dengan rata-rata di bawah G4 → bass.
+        // Turunkan (mis. 2) untuk perilaku konservatif, naikkan (mis. 6) untuk agresif.
+        this.clefGtoFThreshold = options.clefGtoFThreshold ?? 4;
+        // Threshold balik F→G. Default -4 (setara F3).
+        this.clefFtoGThreshold = options.clefFtoGThreshold ?? -4;
+
+        // Cetak info keputusan auto-clef ke console untuk debugging.
+        this.debugAutoClef = options.debugAutoClef;
     }
 
     /**
@@ -261,6 +277,11 @@ class MusicXMLPDFRenderer {
             staffState[s] = { clef: "G", fifths: 0, beats: 4, beatType: 4, timeSymbol: null, divisions: 4 };
         }
 
+        // === Auto-clef: pilih clef terbaik per staff ===
+        if (this.autoClef) {
+            this.applyAutoClefToStaffState(partStaffMap, partMeasureMap, staffState);
+        }
+
         const activeTies = {};
 
         for (let measureIdx = 0; measureIdx < totalMeasures; measureIdx++) {
@@ -295,7 +316,15 @@ class MusicXMLPDFRenderer {
                         const clefNum = parseInt(clefNode.getAttribute("number") || "1");
                         const sign = clefNode.querySelector("sign")?.textContent;
                         const staffId = pInfo.startStaffId + (clefNum - 1);
-                        if (staffState[staffId] && sign) staffState[staffId].clef = sign;
+                        if (staffState[staffId] && sign) {
+                            // Jika auto-clef sudah memilih clef di measure pertama,
+                            // jangan timpa dengan clef asli dari XML.
+                            // Clef perubahan eksplisit di measure selanjutnya tetap dihormati.
+                            if (measureIdx === 0 && staffState[staffId]._clefAutoApplied) {
+                                return;
+                            }
+                            staffState[staffId].clef = sign;
+                        }
                     });
                 }
             });
@@ -675,6 +704,167 @@ class MusicXMLPDFRenderer {
             currentX += measureWidth;
             this.drawPageNumbers();
         }
+    }
+
+    /**
+     * Menganalisis distribusi pitch untuk setiap staff, lalu memilih clef
+     * terbaik (G/F/C) dan menuliskannya ke staffState.
+     *
+     * @param {Array<Object>} partStaffMap Info staff per part.
+     * @param {Array<Map>} partMeasureMap Map nomor measure -> node.
+     * @param {Object} staffState State staff yang akan dimodifikasi.
+     */
+    applyAutoClefToStaffState(partStaffMap, partMeasureMap, staffState) {
+        console.log('applyAutoClefToStaffState')
+        const stats = this.analyzeStaffPitchRanges(partStaffMap, partMeasureMap);
+
+        for (let s = 1; s <= Object.keys(staffState).length; s++) {
+            const stat = stats[s];
+            if (!stat || !stat.hasNotes) continue;
+
+            const pInfo = partStaffMap.find(p => s >= p.startStaffId && s < p.startStaffId + p.numStaves);
+            if (!pInfo) continue;
+            const localStaff = s - pInfo.startStaffId + 1;
+            const originalClef = this.getInitialClefFromXml(pInfo, localStaff);
+
+            const chosen = this.pickClefForRange(stat, originalClef);
+            staffState[s].clef = chosen;
+            staffState[s]._clefAutoApplied = true;
+
+            if (this.debugAutoClef) {
+                console.log(
+                    `[AutoClef] staff ${s}: ` +
+                    `avgDiatonic=${stat.avgDiatonic.toFixed(2)}, ` +
+                    `min=${stat.minDiatonic}, max=${stat.maxDiatonic}, ` +
+                    `original=${originalClef} → chosen=${chosen}`
+                );
+            }
+        }
+    }
+
+    /**
+     * Mengumpulkan statistik pitch (min, max, rata-rata berbobot durasi)
+     * untuk setiap staff di seluruh part.
+     *
+     * @param {Array<Object>} partStaffMap
+     * @param {Array<Map>} partMeasureMap
+     * @returns {Object} Map: staffId -> { minDiatonic, maxDiatonic, avgDiatonic, hasNotes, noteCount }
+     */
+    analyzeStaffPitchRanges(partStaffMap, partMeasureMap) {
+        const result = {};
+
+        partStaffMap.forEach(pInfo => {
+            for (let s = 0; s < pInfo.numStaves; s++) {
+                const staffId = pInfo.startStaffId + s;
+                const localStaff = s + 1;
+
+                let minD = Infinity;
+                let maxD = -Infinity;
+                let totalWeighted = 0;
+                let totalWeight = 0;
+                let noteCount = 0;
+
+                for (const mNode of partMeasureMap[pInfo.partIndex].values()) {
+                    mNode.querySelectorAll("note").forEach(noteNode => {
+                        if (noteNode.querySelector("rest")) return;
+
+                        const noteStaff = parseInt(noteNode.querySelector("staff")?.textContent || "1", 10);
+                        if (noteStaff !== localStaff) return;
+
+                        const step = noteNode.querySelector("pitch step")?.textContent;
+                        if (!step) return;
+
+                        const octave = parseInt(noteNode.querySelector("pitch octave")?.textContent || "4", 10);
+                        const diatonic = this.getDiatonicIndex(step, octave);
+                        const dur = parseInt(noteNode.querySelector("duration")?.textContent || "0", 10);
+                        const weight = Math.max(1, dur);
+
+                        if (diatonic < minD) minD = diatonic;
+                        if (diatonic > maxD) maxD = diatonic;
+                        totalWeighted += diatonic * weight;
+                        totalWeight += weight;
+                        noteCount++;
+                    });
+                }
+
+                result[staffId] = {
+                    minDiatonic: minD,
+                    maxDiatonic: maxD,
+                    avgDiatonic: totalWeight > 0 ? totalWeighted / totalWeight : 0,
+                    hasNotes: noteCount > 0,
+                    noteCount: noteCount
+                };
+            }
+        });
+
+        return result;
+    }
+
+    /**
+     * Memilih clef yang paling cocok berdasarkan rata-rata diatonic pitch.
+     *
+     *  - Treble (G) center: B4 = diatonic 6
+     *  - Bass   (F) center: D3 = diatonic -6
+     *  - Alto   (C) center: C4 = diatonic 0
+     *
+     * Aturan default (allowAltoClef = false):
+     *   - Jika clef asli G dan rata-rata di bawah C4 (diatonic < 0) -> pindah ke F.
+     *   - Jika clef asli F dan rata-rata di atas C4 (diatonic > 0)  -> pindah ke G.
+     *   - Selain itu, pertahankan clef asli.
+     *
+     * @param {Object} stat Statistik pitch staff.
+     * @param {string} originalClef Clef awal dari XML ("G" | "F" | "C").
+     * @returns {string} Clef terpilih.
+     */
+    pickClefForRange(stat, originalClef) {
+        const { avgDiatonic } = stat;
+        const current = originalClef || "G";
+
+        // Mode 3-clef: pilih clef yang center-nya paling dekat dengan rata-rata.
+        if (this.allowAltoClef) {
+            const choices = [
+                { clef: "G", center: 6 },
+                { clef: "C", center: 0 },
+                { clef: "F", center: -6 }
+            ];
+            let best = choices[0];
+            let bestDist = Math.abs(avgDiatonic - best.center);
+            for (let i = 1; i < choices.length; i++) {
+                const d = Math.abs(avgDiatonic - choices[i].center);
+                if (d < bestDist) { bestDist = d; best = choices[i]; }
+            }
+            return best.clef;
+        }
+
+        // Mode 2-clef (G <-> F) dengan threshold yang bisa disetel.
+        if (current === "G" && avgDiatonic < this.clefGtoFThreshold) return "F";
+        if (current === "F" && avgDiatonic > this.clefFtoGThreshold) return "G";
+        if (current === "C") return avgDiatonic >= 0 ? "G" : "F";
+
+        return current;
+    }
+
+    /**
+     * Membaca clef awal dari XML untuk staff tertentu.
+     * Berguna untuk memutuskan arah perpindahan clef.
+     *
+     * @param {Object} pInfo Info part.
+     * @param {number} localStaff Nomor staff lokal di dalam part (1-based).
+     * @returns {string} "G" | "F" | "C"
+     */
+    getInitialClefFromXml(pInfo, localStaff) {
+        const firstMeasure = pInfo.partNode.querySelector("measure");
+        if (!firstMeasure) return "G";
+
+        const clefs = firstMeasure.querySelectorAll("attributes clef");
+        for (const c of clefs) {
+            const num = parseInt(c.getAttribute("number") || "1", 10);
+            if (num === localStaff) {
+                const sign = c.querySelector("sign")?.textContent;
+                if (sign) return sign;
+            }
+        }
+        return "G";
     }
 
     /**

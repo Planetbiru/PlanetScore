@@ -71,7 +71,7 @@ Returns an object with the following structure:
 
 -   **Part Generation**: Maps active MIDI channels to MusicXML `<score-part>` elements, automatically assigning instrument names.
 -   **Channel Selection**: Supports rendering a subset of channels via the `selectedChannels` option (array). Meta tracks (lyrics, tempo, time signature) are **always preserved** so that lyrics and tempo markings still appear on the rendered score.
--   **Track Selection (legacy)**: Supports `selectedTrack` (single integer) for backward compatibility, which internally resolves to a set of channels.
+-   **Track Selection (legacy)**: Supports `selectedTracks` (single integer) for backward compatibility, which internally resolves to a set of channels.
 -   **Automatic Staff Splitting**: Can split a single MIDI channel with a wide note range (like a piano track) into multiple staves.
     -   `autoSplit: true`: Automatically splits a channel into two or three staves if its note range exceeds the relevant thresholds.
     -   `splitThreshold`: Primary threshold (in semitones) that determines whether a part *should* be split. Defaults to `24` (2 octaves). For piano-family instruments (program 0–7), the effective threshold is automatically lowered to `14` (~1.2 octaves) since piano parts benefit from a grand staff earlier.
@@ -103,7 +103,7 @@ This is the main entry point for the conversion process.
 | `creator` | string | `"Composer Name"` | The name of the composer. |
 | `divisions` | number | `4` | Divisions per quarter note in the generated MusicXML. |
 | `selectedChannels` | number[] \| null | `null` | Array of MIDI channel numbers (0–15) to render. If not set, all channels are rendered. Meta tracks are always preserved. |
-| `selectedTrack` | number \| number[] | `null` | Track index (or indices) to render (legacy). Internally resolves to that track's channels. Meta tracks (with no notes) are always preserved. |
+| `selectedTracks` | number \| number[] | `null` | Track index (or indices) to render (legacy). Internally resolves to that track's channels. Meta tracks (with no notes) are always preserved. |
 | `lyricChannelId` | number \| null | `null` | 1-indexed MIDI channel that carries the lyrics (e.g. `4` = channel index 3). If the channel is absent from the rendered score, lyrics are disabled. |
 | `autoSplit` | boolean | `false` | Enables automatic channel splitting based on note range. |
 | `splitThreshold` | number | `24` | Primary threshold (semitones) for automatic split. Lowered to `14` automatically for piano (program 0–7). |
@@ -161,6 +161,7 @@ To disable the floor (legacy behavior), set `minSplitRange: 0`.
     -   Secondary (16th) and tertiary (32nd) beams are drawn only across notes that require them.
     -   Half and quarter notes are never beamed with neighbors.
 -   **Ledger Lines**: Ledger lines are drawn only for notes that fall outside the staff range. Lines that would overlap with the 5 staff lines are automatically skipped. The staff range is clef-aware (treble `2..10`, bass `-10..-2`, alto `-4..4` in diatonic index).
+-   **Auto-Clef Selection**: Automatically picks the most suitable clef (treble G / bass F / alto C) for each staff based on the pitch distribution across the entire part. Prevents "hanging" melodies that sit far below the treble staff from colliding with the lyric row.
 
 ### Main Methods
 
@@ -190,6 +191,72 @@ Updates the position of a visual playhead line on the score and handles auto-scr
 
 Highlights the note groups whose `data-start-tick`/`data-end-tick` range includes the given tick. Used by the playback playhead to highlight the currently-sounding notes.
 
+### Auto-Clef Selection
+
+When a melody is written with a treble clef in the source MIDI but its pitches lean low, the notes end up far below the staff and can overlap with the lyric row. Auto-clef solves this by analyzing the actual pitch content of every staff before rendering and choosing the clef whose vertical center is closest to the weighted average pitch.
+
+**Algorithm** (executed once, before the first system is drawn):
+
+1.  Iterate over every `<note>` in every measure of every part.
+2.  For each staff, compute:
+    -   `minDiatonic` / `maxDiatonic` — lowest and highest diatonic index.
+    -   `avgDiatonic` — duration-weighted average pitch. Long notes contribute more than short ones, so a single high note doesn't skew the decision.
+3.  Compare `avgDiatonic` with the center of each candidate clef:
+    -   Treble (G): center at B4 → diatonic `6`
+    -   Alto (C): center at C4 → diatonic `0`
+    -   Bass (F): center at D3 → diatonic `-6`
+4.  Pick the clef whose center is nearest to `avgDiatonic`.
+
+**Modes**:
+
+| Mode | Options | Behaviour |
+|---|---|---|
+| Default | `autoClef: true` (default), `allowAltoClef: false` | Two-way swap between treble and bass, using a configurable threshold around middle C. |
+| Alto allowed | `autoClef: true`, `allowAltoClef: true` | Three-way choice between G / C / F. Useful for viola, trombone, or any part that sits comfortably around middle C. |
+| Disabled | `autoClef: false` | Clef is taken verbatim from the MusicXML. Behaviour identical to previous versions. |
+
+**Threshold tuning**: In two-way mode, the swap points are controlled by:
+
+-   `clefGtoFThreshold` (default `4`, equivalent to G4) — a part is switched G → F if its weighted average pitch falls **below** this diatonic index.
+-   `clefFtoGThreshold` (default `-4`, equivalent to F3) — a part is switched F → G if its weighted average pitch falls **above** this diatonic index.
+
+Lower values (e.g. `0` = middle C) make the swap conservative; higher values (e.g. `6` = B4) make it aggressive. When `allowAltoClef` is enabled, these thresholds are ignored and the closest-center rule is used instead.
+
+**Interaction with explicit clef changes**: If the MusicXML explicitly changes clef mid-piece (e.g. a passage written in a different register), the auto-clef only overrides the *first* measure's clef. Subsequent explicit clef changes are respected. This is enforced by the `_clefAutoApplied` flag set on each `staffState` entry.
+
+### Additional Constructor Options
+
+Beyond the spacing controls documented above, the SVG constructor also accepts:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `autoClef` | boolean | `true` | Enable automatic clef selection per staff. |
+| `allowAltoClef` | boolean | `false` | When `autoClef` is on, allow alto clef (C) to be selected for mid-range parts. |
+| `clefGtoFThreshold` | number | `4` | Diatonic index below which a G-clef part is switched to F. |
+| `clefFtoGThreshold` | number | `-4` | Diatonic index above which an F-clef part is switched to G. |
+| `debugAutoClef` | boolean | `false` | Log each staff's auto-clef decision (`avgDiatonic`, `min`, `max`, original and chosen clef) to the browser console. |
+| `lyricFontSize` | number | `11` | Font size for lyric text. |
+| `lyricFontFamily` | string | `'sans-serif'` | Generic family applied to lyric text. |
+
+### Auto-Clef Helper Methods
+
+These methods are used internally when `autoClef` is enabled and are not normally called directly, but are documented here for maintainability.
+
+#### `applyAutoClefToStaffState(partStaffMap, partMeasureMap, staffState)`
+
+Analyzes each staff's pitch content and writes the selected clef into `staffState[staffId].clef`. Also sets `staffState[staffId]._clefAutoApplied = true` so that the first measure's explicit clef does not overwrite the automatic choice. When `debugAutoClef` is enabled, prints a one-line summary per staff to the console.
+
+#### `analyzeStaffPitchRanges(partStaffMap, partMeasureMap)`
+
+Walks every measure of every part and returns a per-staff summary:
+
+```js
+{
+  1: { minDiatonic: -3, maxDiatonic: 12, avgDiatonic: 4.7, hasNotes: true, noteCount: 128 },
+  2: { minDiatonic: -12, maxDiatonic: -2, avgDiatonic: -7.1, hasNotes: true, noteCount: 96 },
+  ...
+}
+
 ---
 
 ## MusicXMLPDFRenderer.js
@@ -213,6 +280,7 @@ Highlights the note groups whose `data-start-tick`/`data-end-tick` range include
     -   Stems are drawn directly from the notehead to the beam, avoiding double-line artifacts.
 -   **Ledger Lines**: Same rule as the SVG renderer — ledger lines that would overlap staff lines are skipped. Staff range is clef-aware.
 -   **Key Signature per Clef**: Uses proper diatonic positions for treble, bass, and alto clefs (alto clef positions are `F4 C4 G4 D4 A3 E4 B3` for sharps, `B3 E4 A3 D4 G3 C4 F3` for flats).
+-   **Auto-Clef Selection**: Automatically picks the most suitable clef (treble G / bass F / alto C) for each staff based on the pitch distribution across the entire part. Prevents "hanging" melodies that sit far below the treble staff from colliding with the lyric line.
 
 ### Main Methods
 
@@ -233,6 +301,72 @@ The main method that parses the MusicXML and draws it onto the internal PDF docu
 Saves the generated PDF and triggers a browser download.
 
 -   **`filename`**: The desired name for the downloaded PDF file.
+
+
+### Auto-Clef Selection
+
+When a melody is written with a treble clef in the source MIDI but its pitches lean low, the notes end up far below the staff and can overlap with the lyric row. Auto-clef solves this by analyzing the actual pitch content of every staff before rendering and choosing the clef whose vertical center is closest to the weighted average pitch.
+
+**Algorithm** (executed once, before the first system is drawn):
+
+1.  Iterate over every `<note>` in every measure of every part.
+2.  For each staff, compute:
+    -   `minDiatonic` / `maxDiatonic` — lowest and highest diatonic index.
+    -   `avgDiatonic` — duration-weighted average pitch. Long notes contribute more than short ones, so a single high note doesn't skew the decision.
+3.  Compare `avgDiatonic` with the center of each candidate clef:
+    -   Treble (G): center at B4 → diatonic `6`
+    -   Alto (C): center at C4 → diatonic `0`
+    -   Bass (F): center at D3 → diatonic `-6`
+4.  Pick the clef whose center is nearest to `avgDiatonic`.
+
+**Modes**:
+
+| Mode | Options | Behaviour |
+|---|---|---|
+| Default | `autoClef: true` (default), `allowAltoClef: false` | Two-way swap between treble and bass, using middle C as the threshold. The clef is only changed if the average falls on the wrong side of middle C, so parts that already fit their original clef are left alone. |
+| Alto allowed | `autoClef: true`, `allowAltoClef: true` | Three-way choice between G / C / F. Useful for viola, trombone, or any part that sits comfortably around middle C. |
+| Disabled | `autoClef: false` | Clef is taken verbatim from the MusicXML. Behaviour identical to previous versions. |
+
+**Interaction with explicit clef changes**: If the MusicXML explicitly changes clef mid-piece (e.g. a passage written in a different register), the auto-clef only overrides the *first* measure's clef. Subsequent explicit clef changes are respected. This is enforced by the `_clefAutoApplied` flag set on each `staffState` entry.
+
+### Additional Constructor Options
+
+Beyond the spacing controls shared with the SVG renderer, the PDF constructor also accepts:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `autoClef` | boolean | `true` | Enable automatic clef selection per staff. |
+| `allowAltoClef` | boolean | `false` | When `autoClef` is on, allow alto clef (C) to be selected for mid-range parts. |
+| `compressSilentMeasure` | boolean | `false` | Collapse consecutive silent measures into a multi-measure rest. |
+| `showPageNumbers` | boolean | `true` | Draw "N of M" in the bottom-right corner of each page. |
+| `pageNumberColor` | number[] | `[100, 116, 139]` | RGB color of the page-number text. |
+| `pageNumberMarginBottom` | number | `18` | Distance from the bottom page edge to the page-number baseline. |
+| `lyricFontSize` | number | `10` | Font size for lyric text. |
+| `lyricFontFamily` | string | `'sans-serif'` | Generic family (`sans-serif`, `serif`, `monospace`) mapped to a jsPDF-safe font. |
+| `stemLength` | number | `24` | Minimum stem length. |
+| `firstSystemGap` | number | (unset) | Extra gap between the metadata block and the first system. |
+| `margin` | number | `40` | Legacy single margin, applied to all four sides unless overridden. |
+| `marginTop` / `marginRight` / `marginBottom` / `marginLeft` | number | `margin` | Per-side margin. |
+| `marginTopOtherPages` | number | `marginTop + 12` | Top margin for pages after the first (after the title block disappears). |
+
+### Auto-Clef Helper Methods
+
+These methods are used internally when `autoClef` is enabled and are not normally called directly, but are documented here for maintainability.
+
+#### `applyAutoClefToStaffState(partStaffMap, partMeasureMap, staffState)`
+
+Analyzes each staff's pitch content and writes the selected clef into `staffState[staffId].clef`. Also sets `staffState[staffId]._clefAutoApplied = true` so that the first measure's explicit clef does not overwrite the automatic choice.
+
+#### `analyzeStaffPitchRanges(partStaffMap, partMeasureMap)`
+
+Walks every measure of every part and returns a per-staff summary:
+
+```js
+{
+  1: { minDiatonic: -3, maxDiatonic: 12, avgDiatonic: 4.7, hasNotes: true, noteCount: 128 },
+  2: { minDiatonic: -12, maxDiatonic: -2, avgDiatonic: -7.1, hasNotes: true, noteCount: 96 },
+  ...
+}
 
 ---
 
@@ -376,7 +510,7 @@ Setting `highlight: false` disables highlighting entirely. Setting `scroll: fals
 
 ### Ticks Are Relative to the Rendered Score
 
-The `tick` values used by the playhead and highlighting are the same values used during conversion. If the score is re-rendered with a different `selectedTrack`, `transpose`, or `muteChannels`, the tick base stays the same (the underlying MIDI timeline is unchanged) — only the note layout changes. This means the player can keep ticking without needing to be reloaded when the user re-filters the score.
+The `tick` values used by the playhead and highlighting are the same values used during conversion. If the score is re-rendered with a different `selectedTracks`, `transpose`, or `muteChannels`, the tick base stays the same (the underlying MIDI timeline is unchanged) — only the note layout changes. This means the player can keep ticking without needing to be reloaded when the user re-filters the score.
 
 If the score is re-rendered due to a different `transpose` value, the note positions change but the `data-start-tick`/`data-end-tick` attributes remain tied to the same musical events, so highlighting stays accurate.
 
@@ -464,3 +598,61 @@ To summarize:
 | --- | --- | --- | --- |
 | Playback mute | No | Yes | Audio layer (libtimidity) |
 | `selectedChannels` | Yes | No (unless player is reloaded) | Score generation (MusicXML) |
+
+### Auto-Clef for Hanging Melodies
+
+Melodies that are notated in treble clef but sit mostly below the staff (common in pop vocals, baritone leads, and bass-heavy arrangements) can push the note heads down into the lyric row. Both `MusicXMLSVGRenderer` and `MusicXMLPDFRenderer` support the same auto-clef behaviour so the on-screen and printed scores stay consistent.
+
+Default behaviour is on:
+
+```js
+const renderer = new MusicXMLSVGRenderer('score-container', {
+    // ...other options...
+    // autoClef: true is the default — nothing to add here
+});
+```
+
+To disable per render (e.g. when the user explicitly wants the original clef preserved):
+
+```js
+new MusicXMLSVGRenderer('score-container', {
+    // ...other options...
+    autoClef: false
+});
+```
+
+To allow the alto clef as a third candidate (useful for viola or trombone parts):
+
+```js
+new MusicXMLSVGRenderer('score-container', {
+    // ...other options...
+    autoClef: true,
+    allowAltoClef: true
+});
+```
+
+To tune the treble ↔ bass swap point:
+
+```js
+new MusicXMLSVGRenderer('score-container', {
+    // ...other options...
+    autoClef: true,
+    allowAltoClef: false,
+    clefGtoFThreshold: 6   // aggressive: anything below B4 is switched to bass
+});
+```
+
+The decision is made once at the start of `render()` and applies to the whole part. Mid-piece clef changes that are explicitly encoded in the MusicXML are respected — only the initial clef is overridden.
+
+
+## Compact PDF Export
+
+When exporting a ZIP of per-track PDFs, three settings keep the archive small:
+
+- `pdfRenderer.doc.compress = true` — deflates every PDF stream. Set this before calling `render()` so that jsPDF compresses the content on the first `output()` call.
+
+- `pdfRenderer.doc.setProperties({ title: '', subject: '', author: '', keywords: '', creator: '' })` — strips repeated metadata that otherwise bloats each file with the same title/composer string.
+
+- `zip.generateAsync({ compression: 'DEFLATE', compressionOptions: { level: 9 } })` — applies maximum deflate at the ZIP layer. JSZip's default is STORE (no compression), so this is the single most impactful change.
+
+Combined, these typically reduce the archive size by 45–65% compared to the default export.

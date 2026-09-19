@@ -118,7 +118,7 @@ Supported conversion options include:
 | `creator` | `string` | `"Composer Name"` | Composer or creator name. |
 | `divisions` | `number` | `4` | Divisions per quarter note in the generated MusicXML. |
 | `selectedChannels` | `number[]` | `null` | MIDI channels to render. If omitted, all channels are rendered. |
-| `selectedTrack` | `number \| number[]` | `null` | Track index (or indices) to render (legacy). Resolves to that track's channels. Meta tracks are always preserved. |
+| `selectedTracks` | `number \| number[]` | `null` | Track index (or indices) to render (legacy). Resolves to that track's channels. Meta tracks are always preserved. |
 | `lyricChannelId` | `number \| null` | `null` | 1-indexed MIDI channel that carries the lyrics (e.g. `4` = channel index 3). If the channel is absent from the rendered score, lyrics are disabled entirely. |
 | `autoSplit` | `boolean` | `false` | Automatically split channels with a wide note range. |
 | `splitThreshold` | `number` | `24` | Primary threshold (semitones) for automatic split. Lowered to `14` automatically for piano (program 0–7). |
