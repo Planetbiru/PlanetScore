@@ -57,6 +57,16 @@ class MusicXMLPDFRenderer {
         this.subtitleColor = [100, 116, 139];
 
         this.stepOffsets = { 'C': 0, 'D': 1, 'E': 2, 'F': 3, 'G': 4, 'A': 5, 'B': 6 };
+        // === Stem direction ===
+        // Ambang batas diatonic (posisi note di staff) saat stem otomatis
+        // mengarah ke bawah. Semakin KECIL nilainya, semakin cepat stem berubah
+        // ke bawah begitu note mulai naik.
+        //
+        // Referensi diatonic (treble):
+        //   E4 = 2  (garis bawah)   ← default
+        //   B4 = 6  (garis tengah)  ← aturan baku musik
+        //   F5 = 10 (garis atas)
+        this.stemDirectionThreshold = options.stemDirectionThreshold ?? 5;
 
         this.doc.setFont('helvetica', 'normal');
         this.FONT_SANS_SERIF = 'helvetica';
@@ -77,18 +87,12 @@ class MusicXMLPDFRenderer {
         this.autoClef = options.autoClef !== false;
         this.allowAltoClef = options.allowAltoClef === true;
 
-        // Ambang batas swap clef (dalam satuan diatonic step).
-        // Semakin tinggi nilainya, semakin agresif swap ke bass.
-        // Referensi diatonic: C4=0, E4=2, G4=4, B4=6 (tengah treble), D3=-6 (tengah bass).
-        //
-        // Default 4 (setara G4): melody dengan rata-rata di bawah G4 → bass.
-        // Turunkan (mis. 2) untuk perilaku konservatif, naikkan (mis. 6) untuk agresif.
-        this.clefGtoFThreshold = options.clefGtoFThreshold ?? 4;
-        // Threshold balik F→G. Default -4 (setara F3).
-        this.clefFtoGThreshold = options.clefFtoGThreshold ?? -4;
-
         // Cetak info keputusan auto-clef ke console untuk debugging.
         this.debugAutoClef = options.debugAutoClef;
+
+        // Ambang overflow (diatonic step) untuk auto-clef.
+        // Semakin besar, semakin konservatif (jarang swap). Default 4.
+        this.clefMinOverflow = options.clefMinOverflow ?? 4;
     }
 
     /**
@@ -801,45 +805,72 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Memilih clef yang paling cocok berdasarkan rata-rata diatonic pitch.
+     * Memilih clef berdasarkan seberapa jauh rentang pitch keluar dari staff
+     * clef asli. Hanya swap kalau ada overflow yang signifikan — supaya
+     * instrumen yang sudah punya clef konvensional (violin → treble,
+     * cello → bass) tidak diubah tanpa alasan kuat.
      *
-     *  - Treble (G) center: B4 = diatonic 6
-     *  - Bass   (F) center: D3 = diatonic -6
-     *  - Alto   (C) center: C4 = diatonic 0
+     * Staff ranges (diatonic):
+     *   G (treble): E4=2  .. F5=10
+     *   C (alto)  : F3=-4 .. G4=4
+     *   F (bass)  : G2=-10 .. A3=-2
      *
-     * Aturan default (allowAltoClef = false):
-     *   - Jika clef asli G dan rata-rata di bawah C4 (diatonic < 0) -> pindah ke F.
-     *   - Jika clef asli F dan rata-rata di atas C4 (diatonic > 0)  -> pindah ke G.
-     *   - Selain itu, pertahankan clef asli.
-     *
-     * @param {Object} stat Statistik pitch staff.
+     * @param {Object} stat Statistik pitch staff: { minDiatonic, maxDiatonic, avgDiatonic }
      * @param {string} originalClef Clef awal dari XML ("G" | "F" | "C").
      * @returns {string} Clef terpilih.
      */
     pickClefForRange(stat, originalClef) {
-        const { avgDiatonic } = stat;
+        const { minDiatonic, maxDiatonic, avgDiatonic } = stat;
         const current = originalClef || "G";
 
-        // Mode 3-clef: pilih clef yang center-nya paling dekat dengan rata-rata.
-        if (this.allowAltoClef) {
-            const choices = [
-                { clef: "G", center: 6 },
-                { clef: "C", center: 0 },
-                { clef: "F", center: -6 }
-            ];
-            let best = choices[0];
-            let bestDist = Math.abs(avgDiatonic - best.center);
-            for (let i = 1; i < choices.length; i++) {
-                const d = Math.abs(avgDiatonic - choices[i].center);
-                if (d < bestDist) { bestDist = d; best = choices[i]; }
-            }
-            return best.clef;
+        // Rentang nyaman tiap clef (5 garis staff).
+        const staffRange = {
+            G: { min:  0, max: 12 }, // C4 .. A5 (allow 1 ledger line each side)
+            C: { min: -6, max:  6 }, // D3 .. B4
+            F: { min: -12, max: 0 }  // C2 .. C4
+        };
+
+        // Berapa banyak "overflow" di luar staff clef sekarang.
+        const range = staffRange[current] || staffRange.G;
+        const overflowBelow = Math.max(0, range.min - minDiatonic);
+        const overflowAbove = Math.max(0, maxDiatonic - range.max);
+
+        // Ambang minimal: butuh overflow setara ~4 langkah diatonic (≈ 1 oktaf)
+        // sebelum kita menganggap clef asli sudah tidak layak.
+        const MIN_OVERFLOW = this.clefMinOverflow ?? 4;
+
+        // Kalau masih muat di clef asli, jangan ubah sama sekali.
+        if (overflowBelow < MIN_OVERFLOW && overflowAbove < MIN_OVERFLOW) {
+            return current;
         }
 
-        // Mode 2-clef (G <-> F) dengan threshold yang bisa disetel.
-        if (current === "G" && avgDiatonic < this.clefGtoFThreshold) return "F";
-        if (current === "F" && avgDiatonic > this.clefFtoGThreshold) return "G";
-        if (current === "C") return avgDiatonic >= 0 ? "G" : "F";
+        // Mode 3-clef (alto diizinkan): pilih clef dengan pusat terdekat.
+        if (this.allowAltoClef) {
+            const centers = { G: 6, C: 0, F: -6 };
+            const candidates = ["G", "C", "F"];
+            let best = current;
+            let bestDist = Math.abs(avgDiatonic - centers[current]);
+            for (const clef of candidates) {
+                const d = Math.abs(avgDiatonic - centers[clef]);
+                if (d < bestDist) { bestDist = d; best = clef; }
+            }
+            return best;
+        }
+
+        // Mode 2-clef (G <-> F).
+        // Kalau lebih banyak overflow ke bawah → pilih clef yang lebih rendah.
+        if (overflowBelow > overflowAbove) {
+            if (current === "G") return "F"; // treble → bass
+            if (current === "C") return "F"; // alto   → bass
+            return current;                   // bass sudah paling rendah, biarkan
+        }
+
+        // Kalau lebih banyak overflow ke atas → pilih clef yang lebih tinggi.
+        if (overflowAbove > overflowBelow) {
+            if (current === "F") return "G"; // bass → treble
+            if (current === "C") return "G"; // alto → treble
+            return current;                   // treble sudah paling tinggi, biarkan
+        }
 
         return current;
     }
@@ -1233,8 +1264,12 @@ class MusicXMLPDFRenderer {
         const highestNote = calculatedNotes[calculatedNotes.length - 1];
 
         const avgDiatonic = calculatedNotes.reduce((sum, n) => sum + n.diatonic, 0) / calculatedNotes.length;
-        const middleDiatonic = clefType === "F" ? -6 : 6;
-        const stemDown = avgDiatonic >= middleDiatonic;
+
+        // Ambang batas default: 2 (setara E4 di treble). Karena diatonic index
+        // bersifat absolut (C4 = 0), nilai yang sama juga berlaku di clef lain —
+        // bass passage yang setara (E2 = -12) tetap di bawah threshold, sehingga
+        // bass tetap dominan stem ke bawah. Ini konsisten dengan SVG renderer.
+        const stemDown = avgDiatonic >= this.stemDirectionThreshold;
 
         // Ledger lines dulu
         calculatedNotes.forEach(note => {
