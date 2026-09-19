@@ -269,7 +269,13 @@ class MusicXMLSVGRenderer {
         if (totalSystemStaves === 0) calculatedStaffSystemHeight = staffHeight;
 
         // FIX: Correctly calculate rowSpacing using the configurable systemSpacing.
-        const lyricPadding = hasLyrics ? (this.liricYOffset + 20) * scale : 0;
+        // Hitung seberapa jauh lirik turun di bawah garis staff terbawah.
+        // Staff memiliki tinggi 4 * lineSpacing. Lirik digambar pada this.liricYOffset dari atas staff.
+        // Jadi, overflow di bawah staff adalah: this.liricYOffset - (4 * this.lineSpacing).
+        // Tambahkan margin kecil (misal 10px) agar tidak terlalu mepet dengan sistem berikutnya.
+        const lyricBottomOverflow = Math.max(0, this.liricYOffset - (4 * this.lineSpacing));
+        const lyricPadding = hasLyrics ? (lyricBottomOverflow + 10) * scale : 0;
+        
         this.rowSpacing = calculatedStaffSystemHeight + lyricPadding + this.systemSpacing * scale;
 
         // Metadata Header Details
