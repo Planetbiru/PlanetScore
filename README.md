@@ -2,6 +2,8 @@
 
 PlanetScore is a browser-based MIDI to sheet music renderer. It parses a MIDI file, converts it to MusicXML, and displays the result as responsive SVG notation with an optional PDF preview and download.
 
+> **Note:** This project was created to support score rendering on [Planetbiru Composer](https://composer.planetbiru.com).
+
 The project runs as a static web application. No build process or server-side component is required.
 
 ## Features
