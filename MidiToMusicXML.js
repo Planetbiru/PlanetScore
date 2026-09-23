@@ -9,13 +9,106 @@
  */
 class MidiToMusicXML {
 
+    constructor() {
+        this.parsed = null;
+        this.xmlContent = null;
+    }
+
+    /**
+     * Build an array mapping partIndex → midiTrackId by reading <midi-channel>
+     * from the MusicXML and matching it with the active MIDI tracks.
+     *
+     * @param {string} xmlContent - Result of convert()
+     * @param {Object} [parsedMidi] - Optional result of MidiParser.parse(),
+     *                                used to map channel → track ID
+     * @returns {Array<number|null>} Array of track IDs per part index; null if not found
+     */
+    buildMidiTrackIdByPartIndex(xmlContent, parsedMidi) {
+        if(this.xmlContent == null || this.parsed == null) {
+            return [];
+        }
+        const doc = new DOMParser().parseFromString(xmlContent, "application/xml");
+        const scoreParts = Array.from(doc.querySelectorAll("part-list > score-part"));
+        if (scoreParts.length === 0) return [];
+
+        // Bangun peta: channel (0-based) → track id dari parsedMidi
+        // Track di MidiParser punya properti `channels` = array channel yang dipakai.
+        const channelToTrackId = new Map();
+        if (parsedMidi && Array.isArray(parsedMidi.tracks)) {
+            parsedMidi.tracks.forEach((t, idx) => {
+                if (!t.notes || t.notes.length === 0) return;   // skip meta track
+                if (Array.isArray(t.channels)) {
+                    t.channels.forEach(ch => {
+                        // Satu channel bisa dipakai beberapa track → ambil yang pertama
+                        if (!channelToTrackId.has(ch)) channelToTrackId.set(ch, idx);
+                    });
+                }
+            });
+        }
+
+        // Untuk setiap part, baca <midi-channel> (1-based) dan petakan ke track
+        return scoreParts.map(sp => {
+            const chEl = sp.querySelector("midi-instrument midi-channel");
+            if (!chEl) return null;
+            const ch1 = parseInt(chEl.textContent, 10);       // 1..16
+            if (!Number.isFinite(ch1)) return null;
+            const ch0 = ch1 - 1;                              // 0..15
+            return channelToTrackId.has(ch0) ? channelToTrackId.get(ch0) : null;
+        });
+    }
+
+    /**
+     * Get MIDI track IDs mapped by part index.
+     *
+     * @returns {Array<number|null>} Array of track IDs per part index
+     */
+    getMidiTrackId() {
+        return this.buildMidiTrackIdByPartIndex(this.xmlContent, this.parsed);
+    }
+
+    /**
+     * Build an array mapping partIndex → MIDI channel (0-based) by reading
+     * <midi-channel> from the MusicXML. The array order matches the order of
+     * <score-part> elements in <part-list>, so the array index = partIndex.
+     *
+     * @param {string} xmlContent - Result of convert()
+     * @returns {Array<number|null>} Array of channels (0-based) per part; null if not found
+     */
+    buildMidiChannelByPartIndex(xmlContent) {
+        if (!xmlContent) return [];
+
+        const doc = new DOMParser().parseFromString(xmlContent, "application/xml");
+        const scoreParts = Array.from(doc.querySelectorAll("part-list > score-part"));
+        if (scoreParts.length === 0) return [];
+
+        return scoreParts.map(sp => {
+            const chEl = sp.querySelector("midi-instrument midi-channel");
+            if (!chEl) return null;
+            const ch1 = parseInt(chEl.textContent, 10);   // 1..16
+            if (!Number.isFinite(ch1)) return null;
+            return ch1 - 1;                                // 0..15
+        });
+    }
+
+    /**
+     * Get MIDI channels per part index.
+     *
+     * @param {boolean} [oneBased=false] - If true, return channels as 1..16 instead of 0..15
+     * @returns {Array<number|null>} Array of channels per part; null if not found
+     */
+    getMidiChannel(oneBased = false) {
+        const chs = this.buildMidiChannelByPartIndex(this.xmlContent);
+        if (!oneBased) return chs;
+        return chs.map(c => (c === null ? null : c + 1));
+    }
+
     /**
      * Converts raw MIDI binary data (ArrayBuffer/Buffer) into a MusicXML string.
      * @param {ArrayBuffer|Buffer} midiBuffer 
      * @param {Object} [options] 
      * @returns {string} MusicXML String
      */
-    static convert(midiBuffer, options = {}) {
+    convert(midiBuffer, options = {}) {
         // Resolve Buffer to ArrayBuffer for MidiParser
         let buffer = midiBuffer;
         if (typeof Buffer !== 'undefined' && midiBuffer instanceof Buffer) {
@@ -35,13 +128,8 @@ class MidiToMusicXML {
             splitPoints: null, // e.g., [71, 59]. Forces 3-stave split. Overrides splitPoint.
             minSplitRange: null,
             forceUpdateEvents: true,
-            // ============================================================
-            // OPSI BARU: Snap Position & Snap Duration
-            // ============================================================
-            // Nilai dalam pecahan not (contoh: 0.25 = 1/4, 0.125 = 1/8)
-            // null = tidak ada snap
-            snapPosition: null,   // Snap untuk onset/offset note
-            snapDuration: null    // Snap untuk durasi note
+            snapPosition: null,   // Snap for note onset/offset
+            snapDuration: null    // Snap for note duration
         }, options);
 
         // Parse MIDI binary using the project's MidiParser
@@ -163,7 +251,10 @@ class MidiToMusicXML {
 
         opts._lyricChannelId = lyricChannelId;
 
-        return this.convertParsed(parsed, opts);
+        this.parsed = parsed;
+
+        this.xmlContent = this.convertParsed(parsed, opts);
+        return this.xmlContent;
     }
 
     /**
@@ -172,7 +263,7 @@ class MidiToMusicXML {
      * @param {Object} opts - Conversion options
      * @returns {string} MusicXML String
      */
-    static convertParsed(parsed, opts) {
+    convertParsed(parsed, opts) {
         const ppq = parsed.header.ppq;
         const divisions = opts.divisions;
         const title = opts.title;
@@ -355,9 +446,9 @@ class MidiToMusicXML {
                 xmlPartList += `      <part-abbreviation>${partAbbr}</part-abbreviation>\n`;
 
                 // Add all possible score-instruments for channel 10 drum set mapping
-                Object.keys(this.DRUM_SET).forEach(key => {
+                Object.keys(MidiToMusicXML.DRUM_SET).forEach(key => {
                     const midiCode = parseInt(key);
-                    const drumDetails = this.DRUM_SET[midiCode];
+                    const drumDetails = MidiToMusicXML.DRUM_SET[midiCode];
                     const instId = `${partId}-I${midiCode + 1}`;
                     xmlPartList += `      <score-instrument id="${instId}">\n`;
                     xmlPartList += `        <instrument-name>${this.escapeXML(drumDetails[0])}</instrument-name>\n`;
@@ -369,9 +460,9 @@ class MidiToMusicXML {
 
                 xmlPartList += `      <midi-device port="1"/>\n`;
 
-                Object.keys(this.DRUM_SET).forEach(key => {
+                Object.keys(MidiToMusicXML.DRUM_SET).forEach(key => {
                     const midiCode = parseInt(key);
-                    const drumDetails = this.DRUM_SET[midiCode];
+                    const drumDetails = MidiToMusicXML.DRUM_SET[midiCode];
                     const instId = `${partId}-I${midiCode + 1}`;
                     xmlPartList += `      <midi-instrument id="${instId}">\n`;
                     xmlPartList += `        <midi-channel>10</midi-channel>\n`;
@@ -384,7 +475,7 @@ class MidiToMusicXML {
                 xmlPartList += `    </score-part>\n`;
 
             } else { // Melodic channels
-                let instInfo = this.INSTRUMENT_LIST[initialProgram] || ["Instrument " + (initialProgram + 1), "Instr.", "keyboard.piano"];
+                let instInfo = MidiToMusicXML.INSTRUMENT_LIST[initialProgram] || ["Instrument " + (initialProgram + 1), "Instr.", "keyboard.piano"];
                 // If the channel is split, it's almost certainly a piano part.
                 if (channelStaves[ch] > 1) {
                     instInfo = ['Piano', 'Pno.', 'keyboard.piano.grand'];
@@ -973,7 +1064,7 @@ class MidiToMusicXML {
     // ============================================================
     // PERBAIKAN 4: New helper method to determine staff for a note
     // ============================================================
-    static determineStaffForNote(noteCode, ch, channelStaves, opts, channelMinNote, channelMaxNote, channelNotes) {
+    determineStaffForNote(noteCode, ch, channelStaves, opts, channelMinNote, channelMaxNote, channelNotes) {
         let staff = 1;
         if (channelStaves[ch] === 3) {
             let highSplit, lowSplit;
@@ -1000,7 +1091,7 @@ class MidiToMusicXML {
      * @param {Array} notes - The array of note objects for the channel.
      * @returns {number} The MIDI note number for the optimal split point.
      */
-    static findOptimalSplitPoint(notes) {
+    findOptimalSplitPoint(notes) {
         if (!notes || notes.length === 0) {
             return 60; // Default to Middle C if no notes
         }
@@ -1064,7 +1155,7 @@ class MidiToMusicXML {
      * @param {Object} lyricCarrier - A map of { tick: lyricText } for the current measure.
      * @returns {string} The generated MusicXML for the rests and lyrics.
      */
-    static generateRestsAndLyricsForGap(startDiv, durationDivs, divisions, ppq, measureStartTick, ch, partId, lyricCarrier) {
+    generateRestsAndLyricsForGap(startDiv, durationDivs, divisions, ppq, measureStartTick, ch, partId, lyricCarrier) {
         let xml = "";
         let localCursor = startDiv;
         const endDiv = startDiv + durationDivs;
@@ -1152,7 +1243,7 @@ class MidiToMusicXML {
     // ============================================================
     // PERBAIKAN 5: generateRests now properly uses staff parameter
     // ============================================================
-    static generateRests(durationDivs, divisions, ch, partId, staff = 1) {
+    generateRests(durationDivs, divisions, ch, partId, staff = 1) {
         const restPieces = this.splitIntoRepresentableDurations(durationDivs, divisions);
         return restPieces.map(restDivs => ({
             xml: this.generateNoteXML({
@@ -1176,7 +1267,7 @@ class MidiToMusicXML {
     /**
      * Helper to create a single MusicXML <note> block
      */
-    static generateNoteXML(params) {
+    generateNoteXML(params) {
         const { isChord, isRest, ch, partId, noteCode, durationDivs, divisions, dynamics, staff, tieType, lyricText, beamType } = params;
 
         // If staff is not provided, default to 1
@@ -1203,7 +1294,7 @@ class MidiToMusicXML {
                 xml += `        <notehead>${visuals.notehead}</notehead>\n`;
             }
         } else { // Pitched mapping
-            const pitchStr = this.NOTE_LIST[noteCode];
+            const pitchStr = MidiToMusicXML.NOTE_LIST[noteCode];
             if (pitchStr) {
                 const step = pitchStr.charAt(0);
                 const isSharp = pitchStr.includes('s');
@@ -1296,7 +1387,7 @@ class MidiToMusicXML {
     /**
      * Splits non-standard duration in divisions to pieces of standard notation durations.
      */
-    static splitIntoRepresentableDurations(duration, divisions) {
+    splitIntoRepresentableDurations(duration, divisions) {
         const pieces = [];
         let remaining = duration;
         const epsilon = 0.01; // Toleransi untuk perbandingan float
@@ -1344,7 +1435,7 @@ class MidiToMusicXML {
         return pieces;
     }
     
-    static getNoteType(duration, divisions) {
+    getNoteType(duration, divisions) {
         if (divisions <= 0 || duration <= 0) {
             return '1024th';
         }
@@ -1373,7 +1464,7 @@ class MidiToMusicXML {
         return '1024th';
     }
 
-    static getNoteDots(duration, divisions) {
+    getNoteDots(duration, divisions) {
         if (divisions <= 0 || duration <= 0) {
             return 0;
         }
@@ -1414,7 +1505,7 @@ class MidiToMusicXML {
         return 0;
     }
 
-    static getDrumVisuals(noteCode) {
+    getDrumVisuals(noteCode) {
         let step = 'G', octave = 5, notehead = 'x', stem = 'up';
         switch (noteCode) {
             case 35:
@@ -1470,7 +1561,7 @@ class MidiToMusicXML {
         return { step, octave, notehead, stem };
     }
 
-    static escapeXML(str) {
+    escapeXML(str) {
         if (!str) return '';
         return str.toString()
             .replace(/&/g, '&amp;')

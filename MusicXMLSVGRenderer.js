@@ -59,6 +59,8 @@ class MusicXMLSVGRenderer {
             .highlight circle { fill: #dc2626 !important; }
             .highlight .tie-curve { fill: #dc2626 !important; }
             .tie-curve.highlight   { fill: #dc2626 !important; }
+            .comment-indicator.is-mine rect { stroke: #ffffff; stroke-width: 1; }
+            .comment-indicator.is-mine { filter: drop-shadow(0 0 1px rgba(0,0,0,0.4));}
         `;
         document.head.appendChild(style);
 
@@ -132,6 +134,27 @@ class MusicXMLSVGRenderer {
         this.clefFtoGThreshold = options.clefFtoGThreshold ?? -4;
 
         this.debugAutoClef = options.debugAutoClef === true;
+
+
+        // ============================================================
+        // COMMENT SYSTEM
+        // ============================================================
+        this.comments = Array.isArray(options.comments) ? options.comments.slice() : [];
+        this.commentsVisible = options.commentsVisible !== false;   // default true
+        this.commentMode = options.commentMode === true;            // default false
+        this.commentAuthor = (options.commentAuthor === undefined) ? null : options.commentAuthor;
+        this.commentTrackFilter = (options.commentTrackFilter === undefined) ? null : options.commentTrackFilter;
+        this.commentUserFilter = (options.commentUserFilter === undefined) ? null : options.commentUserFilter;
+        this.commentCallbacks = {
+            onCreateRequest: (typeof options.onCreateRequest === 'function') ? options.onCreateRequest : null,
+            onEditRequest:   (typeof options.onEditRequest   === 'function') ? options.onEditRequest   : null,
+            onMoveRequest:   (typeof options.onMoveRequest   === 'function') ? options.onMoveRequest   : null,
+            onError:         (typeof options.onError         === 'function') ? options.onError         : null,
+            canEdit:         (typeof options.canEdit         === 'function') ? options.canEdit         : null
+        };
+        this._commentsOverlay = null;
+        this._commentCreateAttached = false;
+        this.midiTrackIdByPartIndex = options.midiTrackIdByPartIndex ?? null;
         
     }
 
@@ -626,6 +649,18 @@ class MusicXMLSVGRenderer {
                 }
                 const sY = currentY + currentStaffYOffset;
 
+                const staffMarker = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                staffMarker.setAttribute('data-part-index', String(pInfo.partIndex));
+                staffMarker.setAttribute('data-staff-id', String(s));
+                staffMarker.setAttribute('data-y', String(sY));
+                if (Array.isArray(this.midiTrackIdByPartIndex)) {
+                    const mtid = this.midiTrackIdByPartIndex[pInfo.partIndex];
+                    if (mtid !== undefined && mtid !== null) {
+                        staffMarker.setAttribute('data-midi-track-id', String(mtid));
+                    }
+                }
+                currentSystemGroup.appendChild(staffMarker);
+
                 // Dapatkan channelId dari part
                 const partId = pInfo.partNode.getAttribute('id');
                 const partListEntry = xmlDoc.querySelector(`part-list score-part[id="${partId}"]`);
@@ -992,6 +1027,663 @@ class MusicXMLSVGRenderer {
                 }
             });
         }
+        this._syncTrackFilterFromSource();
+        this.renderComments();
+    }
+
+    // ============================================================
+    // COMMENT API
+    // ============================================================
+
+    /** Ganti seluruh daftar komentar. */
+    setComments(comments) {
+        this.comments = Array.isArray(comments) ? comments.slice() : [];
+        this.renderComments();
+    }
+
+    /** Tambah / replace komentar berdasarkan id. */
+    addComment(comment) {
+        if (!comment) return;
+        const id = comment.id ?? comment.track_comment_id;
+        const idx = this.comments.findIndex(c => (c.id ?? c.track_comment_id) === id);
+        if (idx >= 0) this.comments[idx] = { ...this.comments[idx], ...comment };
+        else this.comments.push(comment);
+        this.renderComments();
+    }
+
+    /** Ubah sebagian field komentar. */
+    updateComment(id, changes) {
+        const c = this.comments.find(c => (c.id ?? c.track_comment_id) === id);
+        if (!c) return;
+        Object.assign(c, changes);
+        this.renderComments();
+    }
+
+    /** Hapus komentar. */
+    removeComment(id) {
+        this.comments = this.comments.filter(c => (c.id ?? c.track_comment_id) !== id);
+        this.renderComments();
+    }
+
+    /** Tampilkan overlay komentar. */
+    showComments() {
+        this.commentsVisible = true;
+        if (this._commentsOverlay) this._commentsOverlay.style.display = '';
+    }
+
+    /** Sembunyikan overlay komentar. */
+    hideComments() {
+        this.commentsVisible = false;
+        if (this._commentsOverlay) this._commentsOverlay.style.display = 'none';
+    }
+
+    /**
+     * Aktif/nonaktifkan interaksi komentar (drag & click).
+     * TIDAK memicu render ulang — hanya update display + cursor.
+     */
+    setCommentMode(on) {
+        this.commentMode = !!on;
+        if (on) this.showComments();
+        else this.hideComments();
+        this._refreshCommentCursors();
+    }
+
+    /** Set user yang sedang login (dipakai untuk menentukan hak edit). */
+    setCommentAuthor(id) {
+        this.commentAuthor = (id === null || id === undefined) ? null : id;
+        this._refreshCommentCursors();
+    }
+
+    /**
+     * Filter komentar menurut MIDI track.
+     * null = tampilkan semua track.
+     * Angka = tampilkan komentar dengan midiTrackId itu + komentar global (-1/null).
+     */
+    setCommentTrackFilter(midiTrackId) {
+        this.commentTrackFilter = (midiTrackId === null || midiTrackId === undefined)
+            ? null
+            : Number(midiTrackId);
+        this.renderComments();
+    }
+
+    /**
+     * Filter komentar menurut pembuat.
+     * null = tampilkan dari semua user.
+     * Nilai = hanya komentar dengan author yang cocok.
+     */
+    setCommentUserFilter(userId) {
+        this.commentUserFilter = (userId === null || userId === undefined) ? null : userId;
+        this.renderComments();
+    }
+
+    /** Daftarkan callback. Bisa dipanggil kapan saja; hanya key yang dikirim yang diupdate. */
+    setCommentCallbacks(cbs) {
+        this.commentCallbacks = { ...this.commentCallbacks, ...(cbs || {}) };
+    }
+
+    /**
+     * Cek hak edit. Default: hanya author-nya sendiri.
+     * Untuk kebijakan kustom (mis. composer boleh hapus komentar client),
+     * override lewat callbacks.canEdit.
+     */
+    canEditComment(comment) {
+        if (!comment) return false;
+        if (typeof this.commentCallbacks.canEdit === 'function') {
+            return !!this.commentCallbacks.canEdit(comment, this.commentAuthor);
+        }
+        return String(comment.author) === String(this.commentAuthor);
+    }
+
+    /**
+     * Cek apakah komentar dibuat oleh user yang sedang login.
+     * Dipakai untuk menandai (mis. border tebal) di UI.
+     */
+    isMyComment(comment) {
+        if (!comment || this.commentAuthor === null) return false;
+        return String(comment.author) === String(this.commentAuthor);
+    }
+
+    // ------------------------------------------------------------
+    // Tick <-> koordinat SVG internal (viewBox space)
+    // ------------------------------------------------------------
+
+    tickToCoordinates(tick, midiTrackId = undefined) {
+        if (!this._svgRoot) return null;
+        const measures = this._svgRoot.querySelectorAll('g[data-measure-number][data-start-tick]');
+        if (measures.length === 0) return null;
+
+        // Cari measure yang mengandung tick (tidak berubah)
+        let targetMeasure = measures[0];
+        for (const m of measures) {
+            const s = parseFloat(m.dataset.startTick);
+            const e = parseFloat(m.dataset.endTick);
+            if (tick >= s && tick < e) { targetMeasure = m; break; }
+            if (tick >= s) targetMeasure = m;
+        }
+
+        const sTick = parseFloat(targetMeasure.dataset.startTick);
+        const eTick = parseFloat(targetMeasure.dataset.endTick);
+        const span  = Math.max(1, eTick - sTick);
+        const progress = Math.max(0, Math.min(1, (tick - sTick) / span));
+
+        const measureX = parseFloat(targetMeasure.getAttribute('x'));
+        const measureW = parseFloat(targetMeasure.getAttribute('width'));
+        const contentX = parseFloat(targetMeasure.getAttribute('data-content-x')     ?? measureX);
+        const contentW = parseFloat(targetMeasure.getAttribute('data-content-width') ?? measureW);
+
+        const x = contentX + progress * contentW;
+
+        const system = targetMeasure.closest('g[data-system-number]');
+        let systemY = parseFloat(system?.getAttribute('y') ?? 0);
+
+        // ⬇️ GANTI seluruh blok getCTM dengan ini:
+        if (midiTrackId !== undefined && midiTrackId !== null && system) {
+            const staffEl = system.querySelector(
+                `g[data-staff-id][data-midi-track-id="${String(midiTrackId)}"]`
+            );
+            if (staffEl) {
+                const storedY = parseFloat(staffEl.getAttribute('data-y'));
+                if (Number.isFinite(storedY)) systemY = storedY;
+            }
+        }
+
+        return {
+            x,
+            y: systemY,
+            systemNumber:  parseInt(system?.dataset.systemNumber ?? 1, 10),
+            measureNumber: parseInt(targetMeasure.dataset.measureNumber ?? 1, 10),
+            progress
+        };
+    }
+
+    coordinatesToTick(x, y) {
+        if (!this._svgRoot) return 0;
+        const systems = Array.from(this._svgRoot.querySelectorAll('g[data-system-number]'));
+        if (systems.length === 0) return 0;
+
+        let system = systems[0];
+        let bestDist = Infinity;
+        for (const s of systems) {
+            const sy = parseFloat(s.getAttribute('y') ?? 0);
+            const d  = Math.abs(y - sy);
+            if (d < bestDist) { bestDist = d; system = s; }
+        }
+
+        const measures = Array.from(system.querySelectorAll('g[data-measure-number][data-start-tick]'));
+        if (measures.length === 0) return 0;
+
+        let targetMeasure = measures[0];
+        for (const m of measures) {
+            const cx = parseFloat(m.getAttribute('data-content-x')     ?? m.getAttribute('x'));
+            const cw = parseFloat(m.getAttribute('data-content-width') ?? m.getAttribute('width'));
+            if (x >= cx && x <= cx + cw) { targetMeasure = m; break; }
+            if (x >= cx) targetMeasure = m;
+        }
+
+        const cx = parseFloat(targetMeasure.getAttribute('data-content-x')     ?? targetMeasure.getAttribute('x'));
+        const cw = parseFloat(targetMeasure.getAttribute('data-content-width') ?? targetMeasure.getAttribute('width'));
+        const progress = cw > 0 ? Math.max(0, Math.min(1, (x - cx) / cw)) : 0;
+
+        const sTick = parseFloat(targetMeasure.dataset.startTick);
+        const eTick = parseFloat(targetMeasure.dataset.endTick);
+        const span  = Math.max(1, eTick - sTick);
+
+        return Math.round(sTick + progress * span);
+    }
+
+    /**
+     * Cari MIDI track id dari staff yang paling dekat dengan koordinat Y
+     * (viewBox space). Dipakai saat drag komentar antar-track.
+     *
+     * @param {number} y - Koordinat Y (viewBox space)
+     * @returns {number|null} midiTrackId terdekat, atau null kalau tidak ada marker
+     */
+    coordinatesToTrack(y) {
+        if (!this._svgRoot) return null;
+        const markers = Array.from(
+            this._svgRoot.querySelectorAll('g[data-midi-track-id][data-y]')
+        );
+        if (markers.length === 0) return null;
+
+        let best = null;
+        let bestDist = Infinity;
+        for (const m of markers) {
+            const my = parseFloat(m.getAttribute('data-y'));
+            if (!Number.isFinite(my)) continue;
+            const d = Math.abs(y - my);
+            if (d < bestDist) { bestDist = d; best = m; }
+        }
+        if (!best) return null;
+
+        const tid = best.getAttribute('data-midi-track-id');
+        if (tid === null || tid === '') return null;
+        const n = Number(tid);
+        return Number.isFinite(n) ? n : null;
+    }
+
+    // ------------------------------------------------------------
+    // Render komentar (native)
+    // ------------------------------------------------------------
+
+    /**
+     * Setel sumber track aktif. Renderer akan membaca .value dari elemen ini
+     * setiap kali render() dipanggil, dan menyinkronkan commentTrackFilter.
+     *
+     * @param {string|null} selector - CSS selector, mis. '#track-select'.
+     *                                null = nonaktifkan auto-sync.
+     */
+    setCommentTrackSource(selector) {
+        this._commentTrackSourceSelector = selector || null;
+        this._syncTrackFilterFromSource();
+        this.renderComments();
+    }
+
+    /** Baca nilai sumber dan update commentTrackFilter. */
+    _syncTrackFilterFromSource() {
+        if (!this._commentTrackSourceSelector) return;
+        const el = document.querySelector(this._commentTrackSourceSelector);
+        if (!el) return;
+        const v = el.value;
+        this.commentTrackFilter = (v === '' || v === null || v === undefined)
+            ? null
+            : Number(v);
+    }
+
+    renderComments() {
+        if (!this._svgRoot) return;
+
+        // Siapkan overlay group
+        let overlay = this._svgRoot.querySelector('#comments-overlay');
+        if (!overlay) {
+            overlay = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            overlay.setAttribute('id', 'comments-overlay');
+            this._svgRoot.appendChild(overlay);
+        }
+        this._commentsOverlay = overlay;
+        while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
+        overlay.style.display = this.commentsVisible ? '' : 'none';
+
+
+        
+
+        // Pasang listener "klik area kosong" sekali
+        if (!this._commentCreateAttached) {
+            this._attachCommentCreateHandler();
+            this._commentCreateAttached = true;
+        }
+
+        if (!Array.isArray(this.comments) || this.comments.length === 0) return;
+
+        // ---- Filter track & user ----
+        const visibleComments = this.comments.filter(c => {
+            // Filter MIDI track
+            if (this.commentTrackFilter !== null) {
+                const t = c.midiTrackId;
+                const isGlobal = (t === null || t === undefined || Number(t) === -1);
+                if (!isGlobal && Number(t) !== this.commentTrackFilter) return false;
+            }
+            // Filter user
+            if (this.commentUserFilter !== null) {
+                if (String(c.author) !== String(this.commentUserFilter)) return false;
+            }
+            return true;
+        });
+
+        if (visibleComments.length === 0) return;
+
+        const offsetX = -21;
+        const offsetY = -4;
+
+        // ---- Compute comment scale based on actual on-screen size ----
+        const vbW = this._svgRoot.viewBox?.baseVal?.width || 1200;
+        
+        // Actual rendered width of the SVG in CSS pixels
+        const renderedPx = (this.container && this.container.clientWidth)
+            || this._svgRoot.getBoundingClientRect().width
+            || vbW;
+        
+        // How many CSS pixels per viewBox unit
+        const pxPerUnit = renderedPx / vbW;
+        
+        // Desired on-screen height of the callout, in CSS pixels.
+        // Slightly larger on small screens (touch-friendly).
+        const isSmallScreen = (typeof window !== 'undefined') && (window.innerWidth < 601);
+        const scl = 0.8;
+        const targetHeightPx = isSmallScreen ? 32 * scl : 26 * scl;
+        
+        // The callout is 4.5 units tall in "comment space".
+        // Solve: 4.5 * COMMENT_SCALE * pxPerUnit = targetHeightPx
+        // → COMMENT_SCALE = targetHeightPx / (4.5 * pxPerUnit)
+        const COMMENT_UNIT_H = 4.5;
+        const COMMENT_SCALE = targetHeightPx / (COMMENT_UNIT_H * pxPerUnit);
+        
+        const COMMENT_BOX_H = COMMENT_UNIT_H * COMMENT_SCALE;
+        const COMMENT_GAP   = 1.5;
+        const MAX_LEN       = isSmallScreen ? 8 : 12;
+
+        const placedComments = [];
+        const sorted = visibleComments.slice().sort((a, b) => (a.tick || 0) - (b.tick || 0));
+
+        for (const comment of sorted) {
+            if (comment.tick === null || comment.tick === undefined) continue;
+
+            const coords = this.tickToCoordinates(comment.tick, comment.midiTrackId);
+            if (!coords) continue;
+
+            const rawText = String(comment.comment || '');
+            const snippet = rawText.length > MAX_LEN
+                ? rawText.substring(0, MAX_LEN).trim() + '…'
+                : rawText;
+
+            const rectWidth   = Math.max(6, snippet.length * 1.8);
+            const xVisual     = coords.x + offsetX;
+            const widthVisual = rectWidth * COMMENT_SCALE;
+
+            // Cari Y bebas tabrakan (stack ke atas)
+            let currentY = coords.y - 14;
+            const MAX_ATTEMPTS = 50;
+            let attempts = 0;
+            while (attempts++ < MAX_ATTEMPTS) {
+                const yTop = currentY + offsetY;
+                const yBot = yTop + COMMENT_BOX_H;
+
+                let collision = null;
+                for (const p of placedComments) {
+                    if (p.systemNumber !== coords.systemNumber) continue;
+                    if (xVisual >= p.xVisual + p.widthVisual + COMMENT_GAP) continue;
+                    if (xVisual + widthVisual + COMMENT_GAP <= p.xVisual) continue;
+                    if (yTop >= p.yBot + COMMENT_GAP) continue;
+                    if (yBot + COMMENT_GAP <= p.yTop) continue;
+                    if (!collision || p.yTop < collision.yTop) collision = p;
+                }
+                if (!collision) break;
+                currentY = (collision.yTop - offsetY) - COMMENT_BOX_H - COMMENT_GAP;
+            }
+
+            placedComments.push({
+                systemNumber: coords.systemNumber,
+                xVisual,
+                widthVisual,
+                yTop: currentY + offsetY,
+                yBot: currentY + offsetY + COMMENT_BOX_H
+            });
+
+            const icon = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            icon.setAttribute('class', 'comment-indicator');
+            icon.setAttribute('data-comment-id', String(comment.id ?? comment.track_comment_id ?? ''));
+            // Tandai komentar milik user saat ini (untuk styling CSS)
+            if (this.isMyComment(comment)) icon.classList.add('is-mine');
+            icon.style.cursor = (this.commentMode && this.canEditComment(comment)) ? 'pointer' : 'default';
+            icon.style.userSelect = 'none';
+            icon.setAttribute('transform', `translate(${coords.x + offsetX}, ${currentY + offsetY})`);
+            icon.dataset.baseY = currentY.toString();
+
+            const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+            title.textContent = rawText;
+            icon.appendChild(title);
+
+            const scale = COMMENT_SCALE;
+            const color = comment.color || '#dc2626';
+
+            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect.setAttribute('x', '0');
+            rect.setAttribute('y', '0');
+            rect.setAttribute('width',  String(rectWidth * scale));
+            rect.setAttribute('height', String(4.5 * scale));
+            rect.setAttribute('rx',     String(0.5 * scale));
+            rect.setAttribute('fill', color);
+            icon.appendChild(rect);
+
+            const tail = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+            tail.setAttribute(
+                'points',
+                `${2*scale},${4.0*scale} ${4*scale},${4.0*scale} ${2*scale},${6*scale}`
+            );
+            tail.setAttribute('fill', color);
+            icon.appendChild(tail);
+
+            const textEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            textEl.setAttribute('x', String(1.5 * scale));
+            textEl.setAttribute('y', String(3.1 * scale));
+            textEl.setAttribute('font-size', String(2.2 * scale));
+            textEl.setAttribute('fill', '#ffffff');
+            textEl.setAttribute('font-family', 'sans-serif');
+            textEl.textContent = snippet;
+            icon.appendChild(textEl);
+
+            this._attachCommentInteraction(icon, comment, coords, offsetX, offsetY);
+
+            overlay.appendChild(icon);
+        }
+    }
+
+    _attachCommentInteraction(icon, comment, coords, offsetX, offsetY) {
+        const svg = this._svgRoot;
+        const self = this;
+        const DRAG_THRESHOLD_PX = 3;
+
+        /** Baca translate(x,y) dari atribut transform ikon. */
+        const readTranslate = (el) => {
+            const s = el.getAttribute('transform') || '';
+            const m = /translate\(\s*([-\d.eE+]+)\s*[,\s]\s*([-\d.eE+]+)\s*\)/.exec(s);
+            if (!m) return null;
+            const x = parseFloat(m[1]);
+            const y = parseFloat(m[2]);
+            return (Number.isFinite(x) && Number.isFinite(y)) ? { x, y } : null;
+        };
+
+        // ---- Drag ----
+        const onDragStart = (e) => {
+            if (!self.commentMode) return;
+            if (!self.canEditComment(comment)) return;
+            e.stopPropagation();
+            if (e.cancelable) e.preventDefault();
+
+            const startClientX = e.clientX ?? e.touches[0].clientX;
+            const startClientY = e.clientY ?? e.touches[0].clientY;
+
+            // Posisi cursor dalam koordinat SVG saat mousedown
+            const startPt = svg.createSVGPoint();
+            startPt.x = startClientX;
+            startPt.y = startClientY;
+            const startSvgP = startPt.matrixTransform(svg.getScreenCTM().inverse());
+
+            // Posisi ikon AKTUAL dari DOM (source of truth).
+            // Lebih andal daripada menghitung dari `coords`, karena tetap benar
+            // walau parent belum rebuild overlay setelah drag sebelumnya.
+            const cur = readTranslate(icon) || {
+                x: coords.x + offsetX,
+                y: coords.y - 14 + offsetY
+            };
+            const iconX = cur.x;
+            const iconY = cur.y;
+
+            // KUNCI: simpan offset cursor terhadap pojok kiri-atas ikon.
+            // Inilah yang membuat drag terasa natural — titik yang di-grab
+            // tetap berada di bawah cursor selama drag.
+            const grabOffsetX = startSvgP.x - iconX;
+            const grabOffsetY = startSvgP.y - iconY;
+
+            let hasMoved = false;
+
+            const onMove = (eMove) => {
+                const mX = eMove.clientX ?? eMove.touches[0].clientX;
+                const mY = eMove.clientY ?? eMove.touches[0].clientY;
+
+                // Threshold kecil agar jitter saat klik tidak dianggap drag
+                if (!hasMoved) {
+                    const dx0 = mX - startClientX;
+                    const dy0 = mY - startClientY;
+                    if (dx0 * dx0 + dy0 * dy0 < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) return;
+                    hasMoved = true;
+                }
+
+                const movePt = svg.createSVGPoint();
+                movePt.x = mX;
+                movePt.y = mY;
+                const moveSvgP = movePt.matrixTransform(svg.getScreenCTM().inverse());
+
+                // Posisi baru ikon = posisi cursor − grab offset.
+                // Dengan begitu offset cursor relatif terhadap ikon tetap.
+                const newX = moveSvgP.x - grabOffsetX;
+                const newY = moveSvgP.y - grabOffsetY;
+
+                icon.setAttribute('transform', `translate(${newX}, ${newY})`);
+            };
+
+            const onUp = () => {
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+                window.removeEventListener('touchmove', onMove);
+                window.removeEventListener('touchend', onUp);
+
+                if (!hasMoved) return;
+
+                window.__commentJustDragged = true;
+                setTimeout(() => window.__commentJustDragged = false, 200);
+
+                // Baca transform akhir dari DOM
+                const fin = readTranslate(icon) || { x: iconX, y: iconY };
+
+                // Anchor tick (posisi staff Y) dalam viewBox space
+                const clickX = fin.x - offsetX;
+                const clickY = (fin.y - offsetY) + 14;
+
+                const newTick = self.coordinatesToTick(clickX, clickY);
+
+                // ⬇️ Deteksi track dari posisi Y akhir (bukan dari comment.midiTrackId)
+                const newMidiTrackId = self.coordinatesToTrack(clickY);
+
+                if (typeof self.commentCallbacks.onMoveRequest === 'function') {
+                    try {
+                        self.commentCallbacks.onMoveRequest(comment, newTick, newMidiTrackId);
+                    } catch (err) {
+                        console.error('[comments] onMoveRequest error:', err);
+                        if (typeof self.commentCallbacks.onError === 'function') {
+                            self.commentCallbacks.onError(err, 'move', comment);
+                        }
+                    }
+                }
+            };
+
+            window.addEventListener('mousemove', onMove, { passive: false });
+            window.addEventListener('mouseup', onUp);
+            window.addEventListener('touchmove', onMove, { passive: false });
+            window.addEventListener('touchend', onUp);
+        };
+
+        icon.addEventListener('mousedown', onDragStart);
+        icon.addEventListener('touchstart', onDragStart, { passive: false });
+
+        // ---- Click untuk edit ----
+        icon.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (window.__commentJustDragged) return;
+            if (!self.commentMode) return;
+            if (!self.canEditComment(comment)) return;
+            if (typeof self.commentCallbacks.onEditRequest === 'function') {
+                try {
+                    self.commentCallbacks.onEditRequest(comment, e);
+                } catch (err) {
+                    console.error('[comments] onEditRequest error:', err);
+                    if (typeof self.commentCallbacks.onError === 'function') {
+                        self.commentCallbacks.onError(err, 'edit', comment);
+                    }
+                }
+            }
+        });
+    }
+
+    _attachCommentCreateHandler() {
+        const svg = this._svgRoot;
+        const self = this;
+
+        svg.addEventListener('click', (e) => {
+            if (!self.commentMode) return;
+            if (window.__commentJustDragged) return;
+            // Klik pada komentar sudah di-stopPropagation oleh handler di atas
+
+            const pt = svg.createSVGPoint();
+            pt.x = e.clientX;
+            pt.y = e.clientY;
+            const v = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+            const tick = self.coordinatesToTick(v.x, v.y);
+
+            if (typeof self.commentCallbacks.onCreateRequest === 'function') {
+                try {
+                    // Kirim juga track yang sedang difilter, agar caller tahu
+                    // komentar baru ditujukan untuk track mana.
+                    self.commentCallbacks.onCreateRequest(
+                        tick,
+                        self.commentTrackFilter,
+                        e.clientX,
+                        e.clientY
+                    );
+                } catch (err) {
+                    console.error('[comments] onCreateRequest error:', err);
+                    if (typeof self.commentCallbacks.onError === 'function') {
+                        self.commentCallbacks.onError(err, 'create');
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * Perbarui cursor & kelas is-mine tiap ikon tanpa rebuild.
+     * Dipakai setelah setCommentMode / setCommentAuthor.
+     */
+    _refreshCommentCursors() {
+        if (!this._commentsOverlay) return;
+        const icons = this._commentsOverlay.querySelectorAll('.comment-indicator');
+        icons.forEach(icon => {
+            const id = icon.getAttribute('data-comment-id');
+            const c = this.comments.find(x => String(x.id ?? x.track_comment_id) === id);
+            if (!c) return;
+
+            // Cursor
+            const editable = this.commentMode && this.canEditComment(c);
+            icon.style.cursor = editable ? 'pointer' : 'default';
+
+            // Tandai milik sendiri
+            if (this.isMyComment(c)) icon.classList.add('is-mine');
+            else icon.classList.remove('is-mine');
+        });
+    }
+
+    // ============================================================
+    // INDIVIDUAL CALLBACK SETTERS
+    // ============================================================
+
+    /** (tick, midiTrackId, clientX, clientY) => void */
+    setOnCreateRequest(fn) {
+        this.commentCallbacks.onCreateRequest = (typeof fn === 'function') ? fn : null;
+        return this;
+    }
+
+    /** (comment, event) => void */
+    setOnEditRequest(fn) {
+        this.commentCallbacks.onEditRequest = (typeof fn === 'function') ? fn : null;
+        return this;
+    }
+
+    /** (comment, newTick) => void */
+    setOnMoveRequest(fn) {
+        this.commentCallbacks.onMoveRequest = (typeof fn === 'function') ? fn : null;
+        return this;
+    }
+
+    /** (err, action, comment?) => void */
+    setOnCommentError(fn) {
+        this.commentCallbacks.onError = (typeof fn === 'function') ? fn : null;
+        return this;
+    }
+
+    /** (comment, currentAuthor) => boolean */
+    setCanEditComment(fn) {
+        this.commentCallbacks.canEdit = (typeof fn === 'function') ? fn : null;
+        return this;
     }
 
     /**

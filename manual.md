@@ -90,7 +90,7 @@ Returns an object with the following structure:
 
 ### Main Method
 
-#### `static convert(midiBuffer, options = {})`
+#### `convert(midiBuffer, options = {})`
 
 This is the main entry point for the conversion process.
 
@@ -539,7 +539,7 @@ The HTML demo exposes a multi-track selector. It works as follows:
 1.  `MidiParser.parse()` is called once when the MIDI file is loaded.
 2.  Tracks with **no note events** (meta tracks) are filtered out of the UI list, but remain in the parsed data so their meta events are preserved.
 3.  Each visible track remembers its original `channels` array.
-4.  When the user selects one or more tracks, the UI collects all unique channels from those tracks and sends them to `MidiToMusicXML.convert()` via the `selectedChannels` option.
+4.  When the user selects one or more tracks, the UI collects all unique channels from those tracks and sends them to `convert()` via the `selectedChannels` option.
 5.  `MidiToMusicXML` filters notes per channel while keeping meta tracks intact, ensuring lyrics and tempo markings still appear.
 
 ### Auto-Split
@@ -568,7 +568,8 @@ When `lyricChannelId` is set (e.g. `4`), lyrics are rendered **only** if the cha
 Example:
 
 ```js
-MidiToMusicXML.convert(buffer, {
+const converter = new MidiToMusicXML();
+converter.convert(buffer, {
     snapPosition: 0.125,
     snapDuration: 0.125
 });
@@ -587,7 +588,8 @@ If you need to **remove** a channel from the rendered score entirely (e.g., to p
 
 ```js
 // Render only channels 0 and 1 in the score
-MidiToMusicXML.convert(buffer, {
+const converter = new MidiToMusicXML();
+converter.convert(buffer, {
     selectedChannels: [0, 1]
 });
 ```
@@ -656,3 +658,539 @@ When exporting a ZIP of per-track PDFs, three settings keep the archive small:
 - `zip.generateAsync({ compression: 'DEFLATE', compressionOptions: { level: 9 } })` — applies maximum deflate at the ZIP layer. JSZip's default is STORE (no compression), so this is the single most impactful change.
 
 Combined, these typically reduce the archive size by 45–65% compared to the default export.
+
+
+## Comment System (SVG Renderer)
+
+The SVG renderer includes a built-in comment layer that lets users attach text notes to any tick position on the score. Comments are rendered natively as SVG elements inside a dedicated overlay group, so they participate in the same coordinate system as the score and remain correctly positioned across re-renders, viewport resizes, and layout changes.
+
+The comment system is **transport-agnostic**: the renderer never talks to a server. Instead, it exposes a set of callbacks that the host application implements to persist changes. This keeps the renderer independent of your backend.
+
+---
+
+### Overview
+
+- **Native rendering** — comments are drawn as `<g class="comment-indicator">` elements inside `<g id="comments-overlay">`, appended to the SVG root after the last system.
+- **Tick-anchored** — each comment stores a MIDI tick. Its on-screen position is derived from the tick using the same DOM-driven conversion as the playhead.
+- **Collision-aware** — when two comments would overlap, the later one is automatically stacked above the earlier one, so every comment remains clickable.
+- **Multi-user ready** — comments record an `author` ID and a `color`. Only the author can edit or delete their own comment by default.
+- **Track-aware** — comments can be filtered by MIDI track, with optional global comments that appear on every track.
+- **Per-user filtering** — the host can display only comments from a specific user.
+- **Non-destructive toggling** — show/hide and mode changes do not rebuild the overlay.
+
+---
+
+### Data Model
+
+Each comment is a plain object with the following fields:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | number \| string | yes | Unique identifier (usually `track_comment_id` from the server). |
+| `midiTrackId` | number | yes | MIDI track the comment belongs to. Use `-1` (or `null`) for a *global* comment that appears on every track. |
+| `tick` | number | yes | MIDI tick position. Uses the same tick base as the rendered score. |
+| `comment` | string | yes | The comment text (plain text only). |
+| `author` | number \| string | yes | ID of the user who created the comment. |
+| `color` | string | yes | Background color of the callout (e.g. `'#dc2626'`). Choose per-user so different users are visually distinguishable. |
+| `authorName` | string | no | Display name — used only for tooltips or dialogs. |
+| `isFromClient` | boolean | no | Semantic flag indicating whether the comment came from a client (vs. a composer). Used by custom `canEdit` policies. |
+
+The `id` may be provided as either `id` or `track_comment_id` — the renderer normalizes both.
+
+---
+
+### Constructor Properties
+
+The comment system adds the following instance properties to `MusicXMLSVGRenderer`:
+
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `comments` | Array | `[]` | Currently rendered comments. |
+| `commentsVisible` | boolean | `true` | Whether the overlay is displayed. |
+| `commentMode` | boolean | `false` | Whether comments are interactive (drag, click, create). |
+| `commentAuthor` | string \| number \| null | `null` | ID of the logged-in user. |
+| `commentTrackFilter` | number \| null | `null` | Currently active MIDI track. `null` = all tracks. |
+| `commentUserFilter` | string \| number \| null | `null` | Show only comments from this user. `null` = all users. |
+| `commentCallbacks` | Object | `{}` | Callback registry (see below). |
+
+---
+
+### Main Methods
+
+#### `setComments(comments)`
+
+Replaces the entire comment list and rebuilds the overlay.
+
+```js
+renderer.setComments([
+    { id: 1, midiTrackId: 2, tick: 960, comment: 'Ba',  author: 'client-1', color: '#dc2626' },
+    { id: 2, midiTrackId: 2, tick: 1920, comment: 'nga', author: 'client-2', color: '#0f766e' }
+]);
+```
+
+#### `addComment(comment)`
+
+Adds a comment, or replaces an existing one with the same `id`. Rebuilds the overlay.
+
+#### `updateComment(id, changes)`
+
+Merges `changes` into the comment with the given `id`. Rebuilds the overlay.
+
+```js
+renderer.updateComment(2, { tick: 2400, comment: 'nga (revised)' });
+```
+
+#### `removeComment(id)`
+
+Removes a comment by ID. Rebuilds the overlay.
+
+---
+
+### Visibility & Mode
+
+#### `showComments()` / `hideComments()`
+
+Toggle visibility without rebuilding the overlay.
+
+```js
+renderer.showComments();
+renderer.hideComments();
+```
+
+#### `setCommentMode(on)`
+
+Enables or disables interaction. When `on = true`, the overlay is shown and dragging / clicking / creating is enabled. When `on = false`, the overlay is hidden and cursors are reset to `default`.
+
+```js
+renderer.setCommentMode(true);
+```
+
+> **Note:** `setCommentMode` does not trigger a full rebuild. It only updates the overlay's `display` and refreshes each icon's cursor. If you need to change the visible set of comments, use `setCommentTrackFilter` or `setCommentUserFilter` instead.
+
+---
+
+### Identity
+
+#### `setCommentAuthor(id)`
+
+Tells the renderer who is currently logged in. This is used by `canEditComment()` to decide which comments can be edited.
+
+```js
+renderer.setCommentAuthor('client-1');
+```
+
+Pass `null` to reset — in that case, no comment is editable unless a custom `canEdit` policy is provided.
+
+#### `isMyComment(comment)`
+
+Returns `true` if the comment was created by the current `commentAuthor`. Used internally to add the `is-mine` CSS class (see styling section).
+
+---
+
+### Filtering
+
+#### `setCommentTrackFilter(midiTrackId)`
+
+Show only comments for a specific MIDI track. Comments with `midiTrackId === -1` (global) are always visible.
+
+```js
+// Show comments for MIDI track 3 (and global comments)
+renderer.setCommentTrackFilter(3);
+
+// Show comments from every track
+renderer.setCommentTrackFilter(null);
+```
+
+#### `setCommentUserFilter(userId)`
+
+Show only comments authored by a specific user.
+
+```js
+renderer.setCommentUserFilter('client-1');   // only client-1's comments
+renderer.setCommentUserFilter(null);          // everyone
+```
+
+Both setters trigger a rebuild because they change which icons are drawn.
+
+---
+
+### Callback Setters
+
+Callbacks are registered individually for clarity. Every setter returns `this`, so calls can be chained.
+
+| Method | Callback signature | Called when |
+|---|---|---|
+| `setOnCreateRequest(fn)` | `(tick, midiTrackId, clientX, clientY) => void` | User clicks an empty area in comment mode. |
+| `setOnEditRequest(fn)` | `(comment, event) => void` | User clicks an editable comment. |
+| `setOnMoveRequest(fn)` | `(comment, newTick) => void` | User finishes dragging a comment. |
+| `setOnCommentError(fn)` | `(err, action, comment?) => void` | A callback throws an exception. |
+| `setCanEditComment(fn)` | `(comment, currentAuthor) => boolean` | Before rendering any comment, to determine editability. |
+
+The batch setter `setCommentCallbacks({...})` is still available if you prefer to pass all callbacks at once.
+
+```js
+renderer.setCommentCallbacks({
+    onCreateRequest: handleCreate,
+    onEditRequest:   handleEdit,
+    onMoveRequest:   handleMove
+});
+```
+
+#### Default `canEdit` policy
+
+If no custom policy is set, `canEditComment()` returns `true` only when `comment.author === commentAuthor`. This is the correct behaviour for multi-user scenarios where each user can only edit their own comments.
+
+For more complex policies (e.g., "composer may delete client comments"), override via `setCanEditComment`:
+
+```js
+renderer.setCanEditComment((comment, me) => {
+    if (MY_ROLE === 'composer' && comment.isFromClient) return true;
+    return String(comment.author) === String(me);
+});
+```
+
+---
+
+### Coordinate Conversion
+
+Two public methods expose the tick ↔ pixel mapping. They are used internally by the comment system, but are useful for building custom UI.
+
+#### `tickToCoordinates(tick)`
+
+Returns the SVG coordinates of a tick position.
+
+```js
+const coords = renderer.tickToCoordinates(960);
+// → { x, y, systemNumber, measureNumber, progress }
+```
+
+#### `coordinatesToTick(x, y)`
+
+Converts SVG coordinates back to a tick.
+
+```js
+const tick = renderer.coordinatesToTick(450, 180);
+```
+
+Both methods operate in the SVG's internal coordinate system (viewBox space). They are exact inverses of each other, so a roundtrip is lossless modulo integer rounding on the tick.
+
+---
+
+### Interaction Behaviour
+
+#### Creating a comment
+
+When `commentMode` is `true`, clicking anywhere on the score that is **not** a comment triggers `onCreateRequest`. The renderer passes the tick and the client coordinates so your UI can position a dialog:
+
+```js
+renderer.setOnCreateRequest(async (tick, midiTrackId, clientX, clientY) => {
+    const text = await openInputDialog({ tick, clientX, clientY });
+    if (!text) return;
+
+    const res = await fetch('api/comment.php', { method: 'POST', body: JSON.stringify({ ... }) })
+        .then(r => r.json());
+
+    if (res.success) {
+        renderer.addComment({
+            id: res.track_comment_id,
+            midiTrackId,
+            tick,
+            comment: text,
+            author: MY_USER_ID,
+            color: MY_COLOR
+        });
+    }
+});
+```
+
+#### Editing a comment
+
+Clicking an editable comment triggers `onEditRequest`. The renderer does **not** provide a built-in edit dialog — you implement one and call `updateComment` / `removeComment` after the server responds.
+
+```js
+renderer.setOnEditRequest((comment, event) => {
+    openEditDialog({
+        comment,
+        onSave: async (newText) => {
+            await fetch('api/comment.php', {
+                method: 'PUT',
+                body: JSON.stringify({ track_comment_id: comment.id, content: newText })
+            });
+            renderer.updateComment(comment.id, { comment: newText });
+        },
+        onDelete: async () => {
+            await fetch('api/comment.php', {
+                method: 'DELETE',
+                body: JSON.stringify({ track_comment_id: comment.id })
+            });
+            renderer.removeComment(comment.id);
+        }
+    });
+});
+```
+
+#### Moving a comment
+
+Dragging a comment updates its visual position in real time. On mouse/touch release, `onMoveRequest` is called with the new tick.
+
+```js
+renderer.setOnMoveRequest(async (comment, newTick) => {
+    const oldTick = comment.tick;
+    try {
+        const res = await fetch('api/comment.php', {
+            method: 'PUT',
+            body: JSON.stringify({ track_comment_id: comment.id, tick: newTick })
+        }).then(r => r.json());
+        if (!res.success) throw new Error(res.error);
+        renderer.updateComment(comment.id, { tick: newTick });
+    } catch {
+        renderer.updateComment(comment.id, { tick: oldTick });
+    }
+});
+```
+
+If you don't provide `onMoveRequest`, dragging is a no-op — the icon snaps back to its rendered position on the next rebuild.
+
+#### Collision stacking
+
+When two comments would overlap, the renderer pushes the later one up by one box height (plus a small gap) and re-checks. This repeats until a free vertical slot is found or a maximum number of attempts is reached. The stacking is entirely visual: the stored `tick` is unchanged.
+
+---
+
+### Styling
+
+The renderer adds the class `comment-indicator` to every icon. If the comment belongs to the current `commentAuthor`, the class `is-mine` is also added. You can use this for visual distinction:
+
+```css
+.comment-indicator.is-mine rect {
+    stroke: #ffffff;
+    stroke-width: 2;
+}
+.comment-indicator.is-mine {
+    filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.4));
+}
+```
+
+The background color of the callout is set per-comment via the `color` field — this is how different users are visually distinguished. Choose a deterministic color function on the server or client:
+
+```js
+function colorFor(authorId) {
+    let hash = 0;
+    for (const ch of String(authorId)) hash = ch.charCodeAt(0) + ((hash << 5) - hash);
+    return `hsl(${Math.abs(hash % 360)}, 65%, 45%)`;
+}
+```
+
+---
+
+### Complete Integration Example
+
+```js
+// --- Setup ---
+const renderer = new MusicXMLSVGRenderer('score-content', scoreOptions);
+
+renderer.setCommentAuthor(CURRENT_USER_ID);
+renderer.setCommentTrackFilter(currentMidiTrackId());
+renderer.setCommentMode(true);
+
+// --- Callbacks ---
+renderer
+    .setOnCreateRequest(async (tick, midiTrackId, clientX, clientY) => {
+        const text = await openInputDialog({ tick, clientX, clientY });
+        if (!text) return;
+        const res = await postComment({ trackId: TRACK_ID, midiTrackId, tick, text });
+        if (res.success) {
+            renderer.addComment({
+                id: res.track_comment_id,
+                midiTrackId,
+                tick,
+                comment: text,
+                author: CURRENT_USER_ID,
+                color: colorFor(CURRENT_USER_ID)
+            });
+        }
+    })
+    .setOnEditRequest((comment, event) => {
+        openEditDialog({
+            comment,
+            onSave: async (newText) => {
+                await putComment(comment.id, { content: newText });
+                renderer.updateComment(comment.id, { comment: newText });
+            },
+            onDelete: async () => {
+                await deleteComment(comment.id);
+                renderer.removeComment(comment.id);
+            }
+        });
+    })
+    .setOnMoveRequest(async (comment, newTick) => {
+        const oldTick = comment.tick;
+        try {
+            await putComment(comment.id, { tick: newTick });
+            renderer.updateComment(comment.id, { tick: newTick });
+        } catch {
+            renderer.updateComment(comment.id, { tick: oldTick });
+        }
+    })
+    .setOnCommentError((err, action, comment) => {
+        console.error(`[comment:${action}]`, err, comment);
+        showToast('Komentar gagal diproses');
+    });
+
+// --- Load comments ---
+const { comments } = await fetch(`api/comment.php?track_id=${TRACK_ID}`).then(r => r.json());
+renderer.setComments(comments.map(normalizeComment));
+
+// --- React to track change ---
+document.getElementById('track-select').addEventListener('change', (e) => {
+    const v = e.target.value;
+    renderer.setCommentTrackFilter(v === '' ? null : parseInt(v, 10));
+});
+```
+
+---
+
+### Complete Workflow
+
+```
+User clicks empty area
+     │
+     └─► onCreateRequest(tick, midiTrackId, x, y)
+              ├─ Open input dialog
+              ├─ POST to server
+              └─ renderer.addComment({...})
+                       └─ New icon appears at the tick position
+
+User drags a comment
+     │
+     └─► onMoveRequest(comment, newTick)
+              ├─ PUT to server
+              └─ renderer.updateComment(id, { tick: newTick })
+
+User clicks a comment
+     │
+     └─► onEditRequest(comment, event)
+              ├─ Open edit dialog
+              ├─ Save  → PUT + renderer.updateComment(id, { comment })
+              └─ Delete → DELETE + renderer.removeComment(id)
+
+User changes track
+     │
+     └─► renderer.setCommentTrackFilter(newTrackId)
+              └─ Overlay re-renders with only the matching comments
+
+User switches login
+     │
+     └─► renderer.setCommentAuthor(newUserId)
+              └─ Cursors and is-mine classes refresh — no rebuild
+```
+
+### Callback Setters
+
+Callbacks are registered **individually** rather than through a single configuration object. Every setter returns `this`, so calls can be chained. Passing `null` (or omitting the argument) removes the callback.
+
+| Method | Callback signature | Called when |
+|---|---|---|
+| `setOnCreateRequest(fn)` | `(tick, midiTrackId, clientX, clientY) => void` | User clicks an empty area in comment mode. |
+| `setOnEditRequest(fn)` | `(comment, event) => void` | User clicks an editable comment. |
+| `setOnMoveRequest(fn)` | `(comment, newTick, newMidiTrackId) => void` | User finishes dragging a comment. |
+| `setOnCommentError(fn)` | `(err, action, comment?) => void` | A callback throws an exception. |
+| `setCanEditComment(fn)` | `(comment, currentAuthor) => boolean` | Before rendering any comment, to determine editability. |
+
+#### Why individual setters?
+
+- **Granular** — register only the callbacks your app actually handles. The others default to `null` and are simply ignored at runtime.
+- **Chainable** — every setter returns `this`, so you can wire up the whole comment pipeline in one expression.
+- **Updatable** — call a setter at any time to replace just that one callback, without touching the others.
+- **Removable** — pass `null` to clear a single callback.
+
+#### Registering callbacks
+
+```js
+const renderer = new MusicXMLSVGRenderer('score-content', scoreOptions);
+
+renderer.setCommentAuthor(CURRENT_USER_ID);
+renderer.setCommentMode(true);
+
+renderer.setOnCreateRequest((tick, midiTrackId, clientX, clientY) => {
+    // open input dialog and POST to server
+});
+
+renderer.setOnEditRequest((comment, event) => {
+    // open edit dialog (Save / Delete)
+});
+
+renderer.setOnMoveRequest((comment, newTick, newMidiTrackId) => {
+    // PUT new tick and new MIDI track ID to server
+});
+```
+
+#### Chaining
+
+Because every setter returns `this`, the same setup can be written as a fluent chain:
+
+```js
+renderer
+    .setCommentAuthor(CURRENT_USER_ID)
+    .setCommentTrackFilter(currentMidiTrackId())
+    .setCommentMode(true)
+    .setOnCreateRequest(handleCreate)
+    .setOnEditRequest(handleEdit)
+    .setOnMoveRequest(handleMove)
+    .setOnCommentError(handleError)
+    .setCanEditComment(myCanEditPolicy);
+```
+
+#### Replacing a callback
+
+Call the setter again with a new function. The other callbacks are untouched:
+
+```js
+// Initial handler
+renderer.setOnCreateRequest(handleCreateV1);
+
+// Later — replace only this one
+renderer.setOnCreateRequest(handleCreateV2);
+```
+
+#### Removing a callback
+
+Pass `null` to unregister:
+
+```js
+renderer.setOnEditRequest(null);      // disable edit dialogs
+renderer.setOnMoveRequest(null);      // disable dragging
+renderer.setOnCommentError(null);     // stop receiving error reports
+```
+
+When a callback is `null`, the corresponding action becomes a silent no-op. For example:
+
+- With `onCreateRequest = null`, clicking an empty area in comment mode does nothing.
+- With `onEditRequest = null`, clicking an editable comment does nothing.
+- With `onMoveRequest = null`, dragging still moves the icon visually during the drag, but no tick is submitted — the icon snaps back to its rendered position on the next rebuild.
+
+#### Optional: batch setter
+
+If you prefer to register several callbacks at once, the batch setter is still available. It merges the given keys into the existing registry — callbacks not mentioned are left as they are.
+
+```js
+renderer.setCommentCallbacks({
+    onCreateRequest: handleCreate,
+    onEditRequest:   handleEdit,
+    onMoveRequest:   handleMove
+});
+```
+
+You can freely mix individual and batch registration. Individual setters are the recommended style because they keep the intent of each call explicit.
+
+---
+
+### Notes and Caveats
+
+- **Ticks are relative to the rendered score.** The `tick` values used by the comment system are the same values written to `data-start-tick` / `data-end-tick` during rendering. If the score is re-rendered with a different `selectedTracks`, `transpose`, or `muteChannels`, the tick base is unchanged — comment positions remain valid.
+- **Comments are not persisted by the renderer.** Every mutation (create / edit / delete / move) must be sent to your server via the callbacks. The renderer only keeps a local in-memory copy for display.
+- **Do not rebuild the overlay on every mouse move.** During a drag, only the icon's `transform` attribute is updated. The overlay rebuild happens only on `setComments`, `addComment`, `updateComment`, `removeComment`, and filter changes.
+- **Mobile support.** Drag uses both `mousedown`/`mousemove` and `touchstart`/`touchmove`. Call `e.preventDefault()` is handled internally — no extra configuration is needed.
+- **`commentMode` vs. `commentsVisible`.** `commentMode` controls whether interactions are allowed; `commentsVisible` controls whether the overlay is drawn at all. They are usually set together via `setCommentMode`, but `showComments` / `hideComments` can toggle visibility independently.
+- **Overlay ordering.** The comment overlay is appended to the SVG root after all systems, and the playhead is re-appended to the top on every `updatePlayhead` call. As a result, the playhead may draw over comments. If you want comments to always sit above the playhead, wrap the playhead and comment layer in separate groups and manage `z`-order via DOM position instead.
+```

@@ -619,13 +619,13 @@
                             options.selectedChannels = Array.from(selectedChannels);
                         } else {
                             // Track dipilih tapi tidak punya channel (kemungkinan meta track)
-                            // → fallback: kirim track sebagai selectedTrack
+                            // → fallback: kirim track sebagai selectedTracks
                             options.selectedTracks = selectedTrackIndices.slice();
                         }
                     }
                     // Jika selectedTrackIndices.length === 0, tidak kirim apa-apa (semua)
-
-                    const musicXML = MidiToMusicXML.convert(currentMidiArrayBuffer, options);
+                    const converter = new MidiToMusicXML();
+                    const musicXML = converter.convert(currentMidiArrayBuffer, options);
                     lastGeneratedXML = musicXML;
                     pdfButton.disabled = false;
                     xmlOutputContainer.textContent = musicXML;
@@ -673,6 +673,7 @@
                 try {
                     statusLabel.textContent = 'Membuat PDF…';
                     const pdfRenderer = new MusicXMLPDFRenderer();
+                    console.log(lastGeneratedXML)
                     pdfRenderer.render(lastGeneratedXML);
 
                     const pdfBlob = pdfRenderer.doc.output('blob');

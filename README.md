@@ -99,7 +99,8 @@ const parsed = MidiParser.parse(arrayBuffer, {
 ### Convert MIDI to MusicXML
 
 ```js
-const musicXML = MidiToMusicXML.convert(arrayBuffer, {
+const converter = new MidiToMusicXML();
+const musicXML = converter.convert(arrayBuffer, {
 	title: 'My Score',
 	creator: 'Composer',
 	selectedChannels: [0, 1],

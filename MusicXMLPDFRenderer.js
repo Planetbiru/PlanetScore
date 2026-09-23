@@ -82,7 +82,7 @@ class MusicXMLPDFRenderer {
         this.showPageNumbers = options.showPageNumbers !== false; // default true
         this.pageNumberColor = options.pageNumberColor ?? [100, 116, 139]; // subtitleColor
         this.pageNumberMarginBottom = options.pageNumberMarginBottom ?? 18;
-        this.firstSystemGap = options.firstSystemGap;
+        this.firstSystemGap = options.firstSystemGap ?? 0;
 
         this.autoClef = options.autoClef !== false;
         this.allowAltoClef = options.allowAltoClef === true;
@@ -719,7 +719,6 @@ class MusicXMLPDFRenderer {
      * @param {Object} staffState State staff yang akan dimodifikasi.
      */
     applyAutoClefToStaffState(partStaffMap, partMeasureMap, staffState) {
-        console.log('applyAutoClefToStaffState')
         const stats = this.analyzeStaffPitchRanges(partStaffMap, partMeasureMap);
 
         for (let s = 1; s <= Object.keys(staffState).length; s++) {
