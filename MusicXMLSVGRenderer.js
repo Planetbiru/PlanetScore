@@ -570,6 +570,11 @@ class MusicXMLSVGRenderer {
             measureGroup.setAttribute("data-start-tick", this._cumulativeTick);
             measureGroup.setAttribute("x", currentX);
             measureGroup.setAttribute("width", measureWidth);
+
+            const padding = 24 * scale;
+            const xRange  = measureWidth - padding - 18 * scale;
+            measureGroup.setAttribute("data-content-x",     currentX + padding);
+            measureGroup.setAttribute("data-content-width", xRange);
             
             // Temporarily append to the current system group to render into it
             this.svg.appendChild(measureGroup);
