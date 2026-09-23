@@ -1035,13 +1035,21 @@ class MusicXMLSVGRenderer {
     // COMMENT API
     // ============================================================
 
-    /** Ganti seluruh daftar komentar. */
+    /**
+     * Replace the entire comment list.
+     *
+     * @param {Array<Object>} comments - New list of comments
+     */
     setComments(comments) {
         this.comments = Array.isArray(comments) ? comments.slice() : [];
         this.renderComments();
     }
 
-    /** Tambah / replace komentar berdasarkan id. */
+    /**
+     * Add or replace a comment by ID.
+     *
+     * @param {Object} comment - Comment object to add or update
+     */
     addComment(comment) {
         if (!comment) return;
         const id = comment.id ?? comment.track_comment_id;
@@ -1051,7 +1059,12 @@ class MusicXMLSVGRenderer {
         this.renderComments();
     }
 
-    /** Ubah sebagian field komentar. */
+    /**
+     * Update specific fields of a comment.
+     *
+     * @param {string|number} id - Comment ID
+     * @param {Object} changes - Partial fields to update
+     */
     updateComment(id, changes) {
         const c = this.comments.find(c => (c.id ?? c.track_comment_id) === id);
         if (!c) return;
@@ -1059,27 +1072,37 @@ class MusicXMLSVGRenderer {
         this.renderComments();
     }
 
-    /** Hapus komentar. */
+    /**
+     * Remove a comment by ID.
+     *
+     * @param {string|number} id - Comment ID
+     */
     removeComment(id) {
         this.comments = this.comments.filter(c => (c.id ?? c.track_comment_id) !== id);
         this.renderComments();
     }
 
-    /** Tampilkan overlay komentar. */
+    /**
+     * Show the comment overlay.
+     */
     showComments() {
         this.commentsVisible = true;
         if (this._commentsOverlay) this._commentsOverlay.style.display = '';
     }
 
-    /** Sembunyikan overlay komentar. */
+    /**
+     * Hide the comment overlay.
+     */
     hideComments() {
         this.commentsVisible = false;
         if (this._commentsOverlay) this._commentsOverlay.style.display = 'none';
     }
 
     /**
-     * Aktif/nonaktifkan interaksi komentar (drag & click).
-     * TIDAK memicu render ulang — hanya update display + cursor.
+     * Enable or disable comment interaction (drag & click).
+     * Does not trigger a re-render — only updates display and cursor.
+     *
+     * @param {boolean} on - True to enable, false to disable
      */
     setCommentMode(on) {
         this.commentMode = !!on;
@@ -1088,43 +1111,74 @@ class MusicXMLSVGRenderer {
         this._refreshCommentCursors();
     }
 
-    /** Set user yang sedang login (dipakai untuk menentukan hak edit). */
+    /**
+     * Set the currently logged-in user (used to determine edit rights).
+     *
+     * @param {string|number|null} id - Author ID, or null if none
+     */
     setCommentAuthor(id) {
         this.commentAuthor = (id === null || id === undefined) ? null : id;
         this._refreshCommentCursors();
     }
 
     /**
-     * Filter komentar menurut MIDI track.
-     * null = tampilkan semua track.
-     * Angka = tampilkan komentar dengan midiTrackId itu + komentar global (-1/null).
+     * Set a filter by MIDI track ID(s).
+     * Accepts a single ID, an array of IDs, or a Set.
+     * Null/undefined clears the filter.
+     *
+     * @param {number|Array<number>|Set<number>|null} midiTrackId - Track ID(s) to filter, or null
      */
     setCommentTrackFilter(midiTrackId) {
-        this.commentTrackFilter = (midiTrackId === null || midiTrackId === undefined)
-            ? null
-            : Number(midiTrackId);
+        if (midiTrackId === null || midiTrackId === undefined) {
+            this.commentTrackFilter = null;
+        } else {
+            const arr = (midiTrackId instanceof Set)
+                ? Array.from(midiTrackId)
+                : Array.isArray(midiTrackId)
+                    ? midiTrackId
+                    : [midiTrackId];
+
+            const set = new Set(
+                arr
+                    .filter(v => v !== null && v !== undefined && Number(v) !== -1)
+                    .map(v => Number(v))
+            );
+
+            this.commentTrackFilter = set.size > 0 ? set : null;
+        }
         this.renderComments();
     }
 
     /**
-     * Filter komentar menurut pembuat.
-     * null = tampilkan dari semua user.
-     * Nilai = hanya komentar dengan author yang cocok.
+     * Filter comments by author.
+     * Null = show comments from all users.
+     * Non-null = show only comments from the specified author.
+     *
+     * @param {string|number|null} userId - Author ID to filter, or null
      */
     setCommentUserFilter(userId) {
         this.commentUserFilter = (userId === null || userId === undefined) ? null : userId;
         this.renderComments();
     }
 
-    /** Daftarkan callback. Bisa dipanggil kapan saja; hanya key yang dikirim yang diupdate. */
+    /**
+     * Register callbacks for comment operations.
+     * Can be called at any time; only provided keys are updated.
+     *
+     * @param {Object} cbs - Callback functions (e.g., { canEdit: fn })
+     */
     setCommentCallbacks(cbs) {
         this.commentCallbacks = { ...this.commentCallbacks, ...(cbs || {}) };
     }
 
     /**
-     * Cek hak edit. Default: hanya author-nya sendiri.
-     * Untuk kebijakan kustom (mis. composer boleh hapus komentar client),
-     * override lewat callbacks.canEdit.
+     * Check edit permissions for a comment.
+     * Default: only the author can edit their own comment.
+     * For custom policies (e.g., composer can delete client comments),
+     * override via callbacks.canEdit.
+     *
+     * @param {Object} comment - Comment object
+     * @returns {boolean} True if the current user can edit
      */
     canEditComment(comment) {
         if (!comment) return false;
@@ -1135,18 +1189,24 @@ class MusicXMLSVGRenderer {
     }
 
     /**
-     * Cek apakah komentar dibuat oleh user yang sedang login.
-     * Dipakai untuk menandai (mis. border tebal) di UI.
+     * Check if a comment was created by the currently logged-in user.
+     * Used for UI highlighting (e.g., bold border).
+     *
+     * @param {Object} comment - Comment object
+     * @returns {boolean} True if authored by the current user
      */
     isMyComment(comment) {
         if (!comment || this.commentAuthor === null) return false;
         return String(comment.author) === String(this.commentAuthor);
     }
 
-    // ------------------------------------------------------------
-    // Tick <-> koordinat SVG internal (viewBox space)
-    // ------------------------------------------------------------
-
+    /**
+     * Convert a MIDI tick to SVG coordinates (viewBox space).
+     *
+     * @param {number} tick - MIDI tick position
+     * @param {number} [midiTrackId] - Optional track ID for staff alignment
+     * @returns {Object|null} Coordinates { x, y, systemNumber, measureNumber, progress }
+     */
     tickToCoordinates(tick, midiTrackId = undefined) {
         if (!this._svgRoot) return null;
         const measures = this._svgRoot.querySelectorAll('g[data-measure-number][data-start-tick]');
@@ -1196,6 +1256,13 @@ class MusicXMLSVGRenderer {
         };
     }
 
+    /**
+     * Convert SVG coordinates (viewBox space) to a MIDI tick.
+     *
+     * @param {number} x - X coordinate
+     * @param {number} y - Y coordinate
+     * @returns {number} Corresponding MIDI tick
+     */
     coordinatesToTick(x, y) {
         if (!this._svgRoot) return 0;
         const systems = Array.from(this._svgRoot.querySelectorAll('g[data-system-number]'));
@@ -1232,11 +1299,11 @@ class MusicXMLSVGRenderer {
     }
 
     /**
-     * Cari MIDI track id dari staff yang paling dekat dengan koordinat Y
-     * (viewBox space). Dipakai saat drag komentar antar-track.
+     * Find the nearest MIDI track ID based on Y coordinate (viewBox space).
+     * Used when dragging comments between tracks.
      *
-     * @param {number} y - Koordinat Y (viewBox space)
-     * @returns {number|null} midiTrackId terdekat, atau null kalau tidak ada marker
+     * @param {number} y - Y coordinate (viewBox space)
+     * @returns {number|null} Nearest MIDI track ID, or null if none found
      */
     coordinatesToTrack(y) {
         if (!this._svgRoot) return null;
@@ -1261,16 +1328,13 @@ class MusicXMLSVGRenderer {
         return Number.isFinite(n) ? n : null;
     }
 
-    // ------------------------------------------------------------
-    // Render komentar (native)
-    // ------------------------------------------------------------
-
     /**
-     * Setel sumber track aktif. Renderer akan membaca .value dari elemen ini
-     * setiap kali render() dipanggil, dan menyinkronkan commentTrackFilter.
+     * Set the active track source element.
+     * The renderer will read the `.value` of this element
+     * each time render() is called, and synchronize commentTrackFilter.
      *
-     * @param {string|null} selector - CSS selector, mis. '#track-select'.
-     *                                null = nonaktifkan auto-sync.
+     * @param {string|null} selector - CSS selector (e.g., '#track-select').
+     *                                 Null disables auto-sync.
      */
     setCommentTrackSource(selector) {
         this._commentTrackSourceSelector = selector || null;
@@ -1278,7 +1342,10 @@ class MusicXMLSVGRenderer {
         this.renderComments();
     }
 
-    /** Baca nilai sumber dan update commentTrackFilter. */
+    /**
+     * Read the value from the track source element
+     * and update commentTrackFilter accordingly.
+     */
     _syncTrackFilterFromSource() {
         if (!this._commentTrackSourceSelector) return;
         const el = document.querySelector(this._commentTrackSourceSelector);
@@ -1289,6 +1356,12 @@ class MusicXMLSVGRenderer {
             : Number(v);
     }
 
+    /**
+     * Render all comments into the SVG overlay.
+     * Creates or updates the #comments-overlay group,
+     * applies filters (track/user), scales callouts based on screen size,
+     * and attaches interaction handlers.
+     */
     renderComments() {
         if (!this._svgRoot) return;
 
@@ -1316,13 +1389,13 @@ class MusicXMLSVGRenderer {
 
         // ---- Filter track & user ----
         const visibleComments = this.comments.filter(c => {
-            // Filter MIDI track
             if (this.commentTrackFilter !== null) {
                 const t = c.midiTrackId;
                 const isGlobal = (t === null || t === undefined || Number(t) === -1);
-                if (!isGlobal && Number(t) !== this.commentTrackFilter) return false;
+                if (!isGlobal && !this.commentTrackFilter.has(Number(t))) {
+                    return false;
+                }
             }
-            // Filter user
             if (this.commentUserFilter !== null) {
                 if (String(c.author) !== String(this.commentUserFilter)) return false;
             }
@@ -1457,6 +1530,16 @@ class MusicXMLSVGRenderer {
         }
     }
 
+    /**
+     * Attach interaction handlers (drag & click) to a comment icon.
+     * Enables dragging to reposition comments and clicking to edit.
+     *
+     * @param {SVGElement} icon - The SVG group element representing the comment
+     * @param {Object} comment - Comment object bound to the icon
+     * @param {Object} coords - Initial coordinates { x, y, systemNumber, measureNumber, progress }
+     * @param {number} offsetX - Horizontal offset applied during rendering
+     * @param {number} offsetY - Vertical offset applied during rendering
+     */
     _attachCommentInteraction(icon, comment, coords, offsetX, offsetY) {
         const svg = this._svgRoot;
         const self = this;
@@ -1594,6 +1677,10 @@ class MusicXMLSVGRenderer {
         });
     }
 
+    /**
+     * Attach a handler for creating new comments by clicking on empty space.
+     * Converts click coordinates into a MIDI tick and invokes onCreateRequest callback.
+     */
     _attachCommentCreateHandler() {
         const svg = this._svgRoot;
         const self = this;
@@ -1631,8 +1718,8 @@ class MusicXMLSVGRenderer {
     }
 
     /**
-     * Perbarui cursor & kelas is-mine tiap ikon tanpa rebuild.
-     * Dipakai setelah setCommentMode / setCommentAuthor.
+     * Refresh cursor style and "is-mine" class for each comment icon
+     * without rebuilding the overlay. Used after setCommentMode or setCommentAuthor.
      */
     _refreshCommentCursors() {
         if (!this._commentsOverlay) return;
@@ -1656,43 +1743,73 @@ class MusicXMLSVGRenderer {
     // INDIVIDUAL CALLBACK SETTERS
     // ============================================================
 
-    /** (tick, midiTrackId, clientX, clientY) => void */
+    /**
+     * Set the callback for creating a new comment.
+     * Signature: (tick, midiTrackId, clientX, clientY) => void
+     *
+     * @param {Function|null} fn - Callback function or null
+     * @returns {this} For chaining
+     */
     setOnCreateRequest(fn) {
         this.commentCallbacks.onCreateRequest = (typeof fn === 'function') ? fn : null;
         return this;
     }
 
-    /** (comment, event) => void */
+    /**
+     * Set the callback for editing a comment.
+     * Signature: (comment, event) => void
+     *
+     * @param {Function|null} fn - Callback function or null
+     * @returns {this} For chaining
+     */
     setOnEditRequest(fn) {
         this.commentCallbacks.onEditRequest = (typeof fn === 'function') ? fn : null;
         return this;
     }
 
-    /** (comment, newTick) => void */
+    /**
+     * Set the callback for moving a comment.
+     * Signature: (comment, newTick) => void
+     *
+     * @param {Function|null} fn - Callback function or null
+     * @returns {this} For chaining
+     */
     setOnMoveRequest(fn) {
         this.commentCallbacks.onMoveRequest = (typeof fn === 'function') ? fn : null;
         return this;
     }
 
-    /** (err, action, comment?) => void */
+    /**
+     * Set the callback for handling comment errors.
+     * Signature: (err, action, comment?) => void
+     *
+     * @param {Function|null} fn - Callback function or null
+     * @returns {this} For chaining
+     */
     setOnCommentError(fn) {
         this.commentCallbacks.onError = (typeof fn === 'function') ? fn : null;
         return this;
     }
 
-    /** (comment, currentAuthor) => boolean */
+    /**
+     * Set the callback for determining edit permissions.
+     * Signature: (comment, currentAuthor) => boolean
+     *
+     * @param {Function|null} fn - Callback function or null
+     * @returns {this} For chaining
+     */
     setCanEditComment(fn) {
         this.commentCallbacks.canEdit = (typeof fn === 'function') ? fn : null;
         return this;
     }
 
     /**
-     * Menganalisis distribusi pitch untuk setiap staff, lalu memilih clef
-     * terbaik (G/F/C) dan menuliskannya ke staffState.
+     * Analyze pitch distribution for each staff, then choose the most suitable clef
+     * (G/F/C) and apply it to the staffState.
      *
-     * @param {Array<Object>} partStaffMap Info staff per part.
-     * @param {Array<Map>} partMeasureMap Map nomor measure -> node.
-     * @param {Object} staffState State staff yang akan dimodifikasi.
+     * @param {Array<Object>} partStaffMap - Staff information per part
+     * @param {Array<Map>} partMeasureMap - Map of measure number → measure node
+     * @param {Object} staffState - Staff state object to be modified
      */
     applyAutoClefToStaffState(partStaffMap, partMeasureMap, staffState) {
         const stats = this.analyzeStaffPitchRanges(partStaffMap, partMeasureMap);
@@ -1722,12 +1839,18 @@ class MusicXMLSVGRenderer {
     }
 
     /**
-     * Mengumpulkan statistik pitch (min, max, rata-rata berbobot durasi)
-     * untuk setiap staff di seluruh part.
+     * Collect pitch statistics (min, max, duration-weighted average)
+     * for each staff across all parts.
      *
-     * @param {Array<Object>} partStaffMap
-     * @param {Array<Map>} partMeasureMap
-     * @returns {Object} Map: staffId -> { minDiatonic, maxDiatonic, avgDiatonic, hasNotes, noteCount }
+     * @param {Array<Object>} partStaffMap - Staff information per part
+     * @param {Array<Map>} partMeasureMap - Map of measure number → measure node
+     * @returns {Object} Map of staffId → {
+     *   minDiatonic: number,
+     *   maxDiatonic: number,
+     *   avgDiatonic: number,
+     *   hasNotes: boolean,
+     *   noteCount: number
+     * }
      */
     analyzeStaffPitchRanges(partStaffMap, partMeasureMap) {
         const result = {};
@@ -1780,19 +1903,20 @@ class MusicXMLSVGRenderer {
     }
 
     /**
-     * Memilih clef berdasarkan seberapa jauh rentang pitch keluar dari staff
-     * clef asli. Hanya swap kalau ada overflow yang signifikan — supaya
-     * instrumen yang sudah punya clef konvensional (violin → treble,
-     * cello → bass) tidak diubah tanpa alasan kuat.
+     * Choose the most appropriate clef based on how far the pitch range
+     * extends beyond the original clef’s staff range. Only swap clefs if
+     * there is significant overflow, so conventional instrument clefs
+     * (e.g., violin → treble, cello → bass) are not changed without strong reason.
      *
-     * Staff ranges (diatonic):
-     *   G (treble): E4=2  .. F5=10
+     * Staff ranges (diatonic indices):
+     *   G (treble): E4=2 .. F5=10
      *   C (alto)  : F3=-4 .. G4=4
      *   F (bass)  : G2=-10 .. A3=-2
      *
-     * @param {Object} stat Statistik pitch staff: { minDiatonic, maxDiatonic, avgDiatonic }
-     * @param {string} originalClef Clef awal dari XML ("G" | "F" | "C").
-     * @returns {string} Clef terpilih.
+     * @param {Object} stat - Pitch statistics for the staff:
+     *   { minDiatonic, maxDiatonic, avgDiatonic }
+     * @param {string} originalClef - Initial clef from XML ("G" | "F" | "C")
+     * @returns {string} Selected clef ("G" | "F" | "C")
      */
     pickClefForRange(stat, originalClef) {
         const { minDiatonic, maxDiatonic } = stat;
@@ -1837,12 +1961,12 @@ class MusicXMLSVGRenderer {
     }
 
     /**
-     * Membaca clef awal dari XML untuk staff tertentu.
-     * Berguna untuk memutuskan arah perpindahan clef.
+     * Read the initial clef from XML for a given staff.
+     * Useful for deciding clef transitions.
      *
-     * @param {Object} pInfo Info part.
-     * @param {number} localStaff Nomor staff lokal di dalam part (1-based).
-     * @returns {string} "G" | "F" | "C"
+     * @param {Object} pInfo - Part information object
+     * @param {number} localStaff - Local staff number within the part (1-based)
+     * @returns {string} Initial clef ("G" | "F" | "C"), defaults to "G"
      */
     getInitialClefFromXml(pInfo, localStaff) {
         const firstMeasure = pInfo.partNode.querySelector("measure");
@@ -1858,6 +1982,7 @@ class MusicXMLSVGRenderer {
         }
         return "G";
     }
+    
     /**
      * Draw 5 Horizontal Staff Lines
      */

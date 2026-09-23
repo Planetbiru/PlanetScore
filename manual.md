@@ -791,11 +791,18 @@ Returns `true` if the comment was created by the current `commentAuthor`. Used i
 
 #### `setCommentTrackFilter(midiTrackId)`
 
-Show only comments for a specific MIDI track. Comments with `midiTrackId === -1` (global) are always visible.
+Show only comments for one or more specific MIDI tracks.
+
+- Accepts a single track ID (`number`), an array of IDs (`Array<number>`), or `null`.
+
+-  Comments with `midiTrackId === -1` (global) are always visible.
 
 ```js
 // Show comments for MIDI track 3 (and global comments)
 renderer.setCommentTrackFilter(3);
+
+// Show comments for MIDI tracks 2, 3, and 5 (plus global comments)
+renderer.setCommentTrackFilter([2, 3, 5]);
 
 // Show comments from every track
 renderer.setCommentTrackFilter(null);
