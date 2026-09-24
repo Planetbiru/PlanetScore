@@ -17,6 +17,30 @@
  * - System boundary tie & slur curve handling (no diagonal page crossings)
  * - Articulations (Staccato dots, Accents, Tenuto, Fermatas)
  * - Measure numbers, Tempo markings, Lyrics, and Document Header formatting
+ *
+ * Comment System:
+ * - Native SVG comment layer rendered inside a dedicated `#comments-overlay` group
+ * - Tick-anchored callouts — position derived from the same DOM-driven mapping
+ *   used by the playhead, so comments stay accurate across re-renders, viewport
+ *   resizes, and layout changes
+ * - Collision-aware stacking — overlapping callouts are pushed upward
+ *   automatically, keeping every comment clickable
+ * - Multi-user ready — each comment records an `author` ID and a `color`;
+ *   edit rights default to "author-only" and can be overridden via `canEdit`
+ * - Multi-track aware — `midiTrackIdByPartIndex` maps MusicXML parts to MIDI
+ *   tracks so comments are drawn on the correct staff; comments with
+ *   `midiTrackId === -1` are treated as global and appear on every track
+ * - Filtering by track (`setCommentTrackFilter`) and by user
+ *   (`setCommentUserFilter`) without requiring a server round-trip
+ * - Native drag-and-drop — reposition comments across staves; the target
+ *   MIDI track is detected automatically from the drop Y coordinate
+ * - Non-destructive visibility toggling — `showComments` / `hideComments` /
+ *   `setCommentMode` update the overlay in place without rebuilding it
+ * - Transport-agnostic — the renderer never talks to a server; the host
+ *   application wires persistence through callbacks (`onCreateRequest`,
+ *   `onEditRequest`, `onMoveRequest`, `onError`, `canEdit`)
+ * - An in-memory comment cache is expected on the host side (e.g.,
+ *   `CommentAPI`) so re-renders do not require re-fetching from the backend
  */
 class MusicXMLSVGRenderer {
     /**
@@ -1688,7 +1712,6 @@ class MusicXMLSVGRenderer {
         svg.addEventListener('click', (e) => {
             if (!self.commentMode) return;
             if (window.__commentJustDragged) return;
-            // Klik pada komentar sudah di-stopPropagation oleh handler di atas
 
             const pt = svg.createSVGPoint();
             pt.x = e.clientX;
@@ -1697,13 +1720,25 @@ class MusicXMLSVGRenderer {
 
             const tick = self.coordinatesToTick(v.x, v.y);
 
+            // ⬇️ Tentukan track dari posisi Y klik
+            let targetTrackId = self.coordinatesToTrack(v.y);
+
+            // Fallback: kalau tidak ada marker di dekat klik, ambil track pertama dari filter
+            if (targetTrackId === null) {
+                if (self.commentTrackFilter instanceof Set && self.commentTrackFilter.size > 0) {
+                    targetTrackId = [...self.commentTrackFilter][0];
+                } else if (typeof self.commentTrackFilter === 'number') {
+                    targetTrackId = self.commentTrackFilter;
+                } else {
+                    targetTrackId = null;
+                }
+            }
+
             if (typeof self.commentCallbacks.onCreateRequest === 'function') {
                 try {
-                    // Kirim juga track yang sedang difilter, agar caller tahu
-                    // komentar baru ditujukan untuk track mana.
                     self.commentCallbacks.onCreateRequest(
                         tick,
-                        self.commentTrackFilter,
+                        targetTrackId,        // ⬅️ sekarang angka tunggal atau null
                         e.clientX,
                         e.clientY
                     );
@@ -1982,7 +2017,7 @@ class MusicXMLSVGRenderer {
         }
         return "G";
     }
-    
+
     /**
      * Draw 5 Horizontal Staff Lines
      */
