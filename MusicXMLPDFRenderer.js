@@ -1475,6 +1475,9 @@ class MusicXMLPDFRenderer {
 
     /**
      * Draws a grouped beam for a connected set of note stems.
+     * Beam level 1 (primary) selalu digambar dari note pertama sampai terakhir.
+     * Beam level 2 dan 3 digambar per contiguous run, sehingga note dengan
+     * durasi lebih panjang di tengah grup tidak "dilewati" oleh beam sekunder.
      *
      * @param {Array<Object>} group Stem metadata objects in one beam group.
      * @returns {void}
@@ -1483,14 +1486,7 @@ class MusicXMLPDFRenderer {
         const first = group[0];
         const last = group[group.length - 1];
 
-        // HAPUS bagian ini:
-        // group.forEach(s => {
-        //     if (s.flagElement && s.flagElement.parentNode) {
-        //         s.flagElement.parentNode.removeChild(s.flagElement);
-        //     }
-        // });
-
-        let beamOffset = 0.7;
+        const beamOffset = 0.7;
 
         let x1 = first.stemX;
         let y1 = first.stemEndY;
@@ -1500,7 +1496,9 @@ class MusicXMLPDFRenderer {
         const dx = x2 - x1;
         const dy = y2 - y1;
 
-        // Align intermediate stems — redraw stem sampai beam
+        // ------------------------------------------------------------
+        // Selaraskan stem antara ke vektor beam
+        // ------------------------------------------------------------
         if (dx > 0) {
             group.forEach(s => {
                 const ratio = (s.stemX - x1) / dx;
@@ -1512,83 +1510,149 @@ class MusicXMLPDFRenderer {
             });
         }
 
-        // Tentukan beam level
-        let maxBeamLevel = 1;
-        group.forEach(s => {
-            if (s.type === "16th" || s.type === "32nd") maxBeamLevel = Math.max(maxBeamLevel, 2);
-            if (s.type === "32nd") maxBeamLevel = Math.max(maxBeamLevel, 3);
-        });
-
+        // ------------------------------------------------------------
+        // Jumlah beam per tipe note
+        // ------------------------------------------------------------
         const getBeamCount = (type) => {
             switch (type) {
                 case '32nd': return 3;
                 case '16th': return 2;
                 case 'eighth': return 1;
-                case 'quarter': return 1;
-                case 'half': return 1;
                 default: return 1;
             }
         };
 
-        // Primary beam
-        if(x1 < x2) {
-            x1 = x1 - beamOffset;
-            x2 = x2 + beamOffset;
-        } else {
-            x1 = x1 + beamOffset;
-            x2 = x2 - beamOffset;
+        let maxBeamLevel = 1;
+        group.forEach(s => {
+            maxBeamLevel = Math.max(maxBeamLevel, getBeamCount(s.type));
+        });
+
+        // ------------------------------------------------------------
+        // PRIMARY BEAM (level 1) — satu garis penuh dari awal ke akhir
+        // ------------------------------------------------------------
+        {
+            let px1 = x1;
+            let px2 = x2;
+            if (px1 < px2) {
+                px1 -= beamOffset;
+                px2 += beamOffset;
+            } else {
+                px1 += beamOffset;
+                px2 -= beamOffset;
+            }
+            this.doc.setDrawColor(...this.engraverColor);
+            this.doc.setLineWidth(3.5);
+            this.doc.line(px1, y1, px2, y2);
         }
-        this.doc.setDrawColor(...this.engraverColor);
-        this.doc.setLineWidth(3.5);
-        this.doc.line(x1, y1, x2, y2);
 
-        // Secondary beam
-        if (maxBeamLevel >= 2) {
-            const offset = (first.stemDown ? -5 : 5);
-            const beam2Notes = group.filter(s => getBeamCount(s.type) >= 2);
-            if (beam2Notes.length > 0) {
-                const firstBeam2 = beam2Notes[0];
-                const lastBeam2 = beam2Notes[beam2Notes.length - 1];
+        // ------------------------------------------------------------
+        // SECONDARY / TERTIARY BEAMS — per contiguous run
+        //
+        // Untuk setiap level L (2 atau 3), cari note-note dengan
+        // getBeamCount >= L, kelompokkan berdasarkan posisi berurutan,
+        // lalu gambar setiap run sebagai segmen terpisah.
+        //
+        // Contoh [1/2, 1/4, 1/2]:
+        //   Level 2 → runs = [ [note tengah] ]     → satu stub di tengah
+        //
+        // Contoh [1/4, 1/2, 1/4]:
+        //   Level 2 → runs = [ [kiri], [kanan] ]   → dua stub terpisah
+        //
+        // Contoh [32nd, 16th, 32nd]:
+        //   Level 2 → runs = [ [ketiga note] ]     → satu garis penuh
+        //   Level 3 → runs = [ [kiri], [kanan] ]   → dua stub terpisah
+        // ------------------------------------------------------------
+        const drawLevelBeams = (level) => {
+            const runs = [];
+            let currentRun = null;
 
-                if(firstBeam2.stemX < lastBeam2.stemX) {
-                    firstBeam2.stemX = firstBeam2.stemX - beamOffset;
-                    lastBeam2.stemX = lastBeam2.stemX + beamOffset;
+            group.forEach((s, idx) => {
+                if (getBeamCount(s.type) >= level) {
+                    if (!currentRun) {
+                        currentRun = { startIdx: idx, endIdx: idx, notes: [s] };
+                    } else {
+                        currentRun.endIdx = idx;
+                        currentRun.notes.push(s);
+                    }
                 } else {
-                    firstBeam2.stemX = firstBeam2.stemX + beamOffset;
-                    lastBeam2.stemX = lastBeam2.stemX - beamOffset;
+                    if (currentRun) {
+                        runs.push(currentRun);
+                        currentRun = null;
+                    }
+                }
+            });
+            if (currentRun) runs.push(currentRun);
+
+            if (runs.length === 0) return;
+
+            // Offset vertikal dari primary beam
+            //   level 2 → ±5
+            //   level 3 → ±10
+            const levelOffsetAbs = 5 * (level - 1);
+            const offset = first.stemDown ? -levelOffsetAbs : levelOffsetAbs;
+
+            runs.forEach(run => {
+                const firstRunNote = run.notes[0];
+                const lastRunNote  = run.notes[run.notes.length - 1];
+
+                let bx1 = firstRunNote.stemX;
+                let by1 = firstRunNote.stemEndY + offset;
+                let bx2 = lastRunNote.stemX;
+                let by2 = lastRunNote.stemEndY + offset;
+
+                if (run.notes.length === 1) {
+                    // ------------------------------------------------
+                    // Run berisi 1 note → gambar stub (secondary flag)
+                    // Perpanjang ke arah interior grup agar tidak
+                    // menimpa note di sebelahnya.
+                    // ------------------------------------------------
+                    const stubLen = 9;
+                    const isLeftmost  = (run.startIdx === 0);
+                    const isRightmost = (run.endIdx === group.length - 1);
+
+                    if (isLeftmost && !isRightmost) {
+                        // Note di ujung kiri → memanjang ke kanan
+                        bx1 = firstRunNote.stemX - 0.5;
+                        bx2 = firstRunNote.stemX + stubLen;
+                    } else if (isRightmost && !isLeftmost) {
+                        // Note di ujung kanan → memanjang ke kiri
+                        bx1 = firstRunNote.stemX - stubLen;
+                        bx2 = firstRunNote.stemX + 0.5;
+                    } else {
+                        // Note di tengah → simetris
+                        bx1 = firstRunNote.stemX - stubLen / 2;
+                        bx2 = firstRunNote.stemX + stubLen / 2;
+                    }
+
+                    // Koreksi slope: kalau stub digeser dari posisi stem
+                    // aslinya, hitung ulang y agar tetap mengikuti vektor beam.
+                    if (dx > 0) {
+                        const ratio1 = (bx1 - x1) / dx;
+                        const ratio2 = (bx2 - x1) / dx;
+                        by1 = y1 + ratio1 * dy + offset;
+                        by2 = y1 + ratio2 * dy + offset;
+                    }
+                } else {
+                    // ------------------------------------------------
+                    // Run berisi banyak note → garis beam biasa
+                    // ------------------------------------------------
+                    if (bx1 < bx2) {
+                        bx1 -= beamOffset;
+                        bx2 += beamOffset;
+                    } else {
+                        bx1 += beamOffset;
+                        bx2 -= beamOffset;
+                    }
                 }
 
+                this.doc.setDrawColor(...this.engraverColor);
                 this.doc.setLineWidth(3.0);
-                this.doc.line(
-                    firstBeam2.stemX, firstBeam2.stemEndY + offset,
-                    lastBeam2.stemX, lastBeam2.stemEndY + offset
-                );
-            }
-        }
+                this.doc.line(bx1, by1, bx2, by2);
+            });
+        };
 
-        // Tertiary beam (32nd)
-        if (maxBeamLevel >= 3) {
-            const offset3 = (first.stemDown ? -10 : 10);
-            const beam3Notes = group.filter(s => getBeamCount(s.type) >= 3);
-            if (beam3Notes.length > 0) {
-                const firstBeam3 = beam3Notes[0];
-                const lastBeam3 = beam3Notes[beam3Notes.length - 1];
-
-                if(firstBeam3.stemX < lastBeam3.stemX) {
-                    firstBeam3.stemX = firstBeam3.stemX - beamOffset;
-                    lastBeam3.stemX = lastBeam3.stemX + beamOffset;
-                } else {
-                    firstBeam3.stemX = firstBeam3.stemX + beamOffset;
-                    lastBeam3.stemX = lastBeam3.stemX - beamOffset;
-                }
-
-                this.doc.setLineWidth(3.0);
-                this.doc.line(
-                    firstBeam3.stemX, firstBeam3.stemEndY + offset3,
-                    lastBeam3.stemX, lastBeam3.stemEndY + offset3
-                );
-            }
-        }
+        if (maxBeamLevel >= 2) drawLevelBeams(2);
+        if (maxBeamLevel >= 3) drawLevelBeams(3);
     }
 
     /**
