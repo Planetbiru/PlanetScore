@@ -756,6 +756,10 @@ class MusicXMLSVGRenderer {
 
                     let pieceCurrentDiv = isChord ? lastBaseDiv : currentDiv;
 
+                    // TAMBAHKAN BARIS INI: Ekstrak tipe dan dot langsung dari XML
+                    const xmlType = originalNoteNode.querySelector("type")?.textContent;
+                    const xmlDots = originalNoteNode.querySelectorAll("dot").length;           
+
                     pieces.forEach((pieceDuration, pIdx) => {
                         const isFirstPiece = (pIdx === 0);
                         const isLastPiece = (pIdx === pieces.length - 1);
@@ -780,6 +784,51 @@ class MusicXMLSVGRenderer {
                             pieceTieStop = originalTieStop;
                         }
 
+                        // ============================================================
+                        // PERBAIKAN: Override tipe not untuk birama 3/4
+                        // ============================================================
+                        let finalType, finalDots;
+                        let finalDuration = pieceDuration;
+
+                        // Cek apakah ini not yang memenuhi seluruh birama 3/4
+                        // 3 ketuk = 3 * divisions (misal: 3 * 512 = 1536)
+                        const isFullMeasure3_4 = (state.beats === 3 && state.beatType === 4) && 
+                                                 (Math.abs(pieceDuration - (3 * currentStaffDivisions)) < 1);
+
+                        if (isFullMeasure3_4 && !isRest) {
+                            // PAKSA menjadi whole note (sesuai permintaan Anda)
+                            finalType = 'whole';
+                            finalDots = 0;
+                            
+                            // Pastikan durasi tetap 3 ketuk (1536) agar tidak menggeser not lain
+                            finalDuration = pieceDuration; 
+                        } else if (pieces.length === 1 && xmlType) {
+                            // Jika bukan full measure 3/4, baru gunakan tipe dari XML
+                            finalType = xmlType;
+                            finalDots = xmlDots;
+                            
+                            // Sinkronisasi durasi jika XML tidak konsisten
+                            const expectedDuration = MusicXMLSVGRenderer.getDurationFromType(xmlType, xmlDots, currentStaffDivisions);
+                            if (expectedDuration > 0 && Math.abs(expectedDuration - pieceDuration) > 1) {
+                                finalDuration = expectedDuration;
+                            }
+                        } else {
+                            // Fallback: Hitung berdasarkan time signature
+                            const typeAndDots = MusicXMLSVGRenderer.getNoteTypeAndDots(
+                                pieceDuration, 
+                                currentStaffDivisions, 
+                                state.beats, 
+                                state.beatType
+                            );
+                            finalType = typeAndDots.type;
+                            finalDots = typeAndDots.dots;
+
+                            const expectedDuration = MusicXMLSVGRenderer.getDurationFromType(finalType, finalDots, currentStaffDivisions);
+                            if (expectedDuration > 0 && Math.abs(expectedDuration - pieceDuration) > 1) {
+                                finalDuration = expectedDuration;
+                            }
+                        }
+
                         const noteData = {
                             channelId: channelId,
                             node: originalNoteNode,
@@ -789,13 +838,13 @@ class MusicXMLSVGRenderer {
                             octave: parseInt(originalNoteNode.querySelector("pitch octave, unpitched display-octave")?.textContent || "4") || 4,
                             alter: parseInt(originalNoteNode.querySelector("pitch alter")?.textContent || "0") || 0,
                             accidental: originalNoteNode.querySelector("accidental")?.textContent,
-                            type: MusicXMLSVGRenderer.getNoteType(pieceDuration, currentStaffDivisions),
+                            type: finalType,
                             stem: originalNoteNode.querySelector("stem")?.textContent,
                             notehead: originalNoteNode.querySelector("notehead")?.textContent,
-                            dots: MusicXMLSVGRenderer.getDotCount(pieceDuration, currentStaffDivisions),
+                            dots: finalDots,
                             lyric: isFirstPiece ? lyricText : null,
                             onsetDiv: pieceCurrentDiv,
-                            duration: pieceDuration,
+                            duration: finalDuration, // <-- Gunakan durasi yang sudah diperbaiki
                             articulations: {
                                 staccato: originalNoteNode.querySelector("articulations staccato") !== null,
                                 accent: originalNoteNode.querySelector("articulations accent") !== null,
@@ -3643,6 +3692,93 @@ class MusicXMLSVGRenderer {
 
         if (Math.abs(value - type.val * 1.5) < 0.001) return 1;
         return 0;
+    }
+
+    /**
+     * Menentukan tipe not dan jumlah titik berdasarkan durasi, divisions, 
+     * dan time signature (beats & beatType).
+     * @param {number} duration - Durasi dalam divisions.
+     * @param {number} divisions - Divisions per quarter note.
+     * @param {number} beats - Numerator time signature (misal: 3 untuk 3/4).
+     * @param {number} beatType - Denominator time signature (misal: 4 untuk 3/4).
+     * @returns {{type: string, dots: number}} Objek berisi tipe not dan jumlah titik.
+     */
+    static getNoteTypeAndDots(duration, divisions, beats = 4, beatType = 4) {
+        if (divisions <= 0 || duration <= 0) return { type: '128th', dots: 0 };
+        
+        // Hitung durasi dalam satuan quarter note
+        const quarterNotes = duration / divisions;
+        
+        // Hitung nilai 1 ketukan dalam satuan quarter note
+        // (misal: di 4/4, 1 ketuk = 1 quarter note. Di 6/8, 1 ketuk = 1 eighth note = 0.5 quarter note)
+        const beatValueInQuarterNotes = 4 / beatType;
+        
+        // Total ketukan dari not ini
+        const totalBeats = quarterNotes / beatValueInQuarterNotes;
+        
+        let type = 'quarter';
+        let dots = 0;
+        
+        if (beatType === 4) {
+            // Logika untuk time signature X/4 (seperti 2/4, 3/4, 4/4)
+            if (totalBeats >= 4) { type = 'whole'; }
+            else if (totalBeats >= 3) { type = 'half'; dots = 1; } // Dotted half
+            else if (totalBeats >= 2) { type = 'half'; }
+            else if (totalBeats >= 1.5) { type = 'quarter'; dots = 1; } // Dotted quarter
+            else if (totalBeats >= 1) { type = 'quarter'; }
+            else if (totalBeats >= 0.75) { type = 'eighth'; dots = 1; } // Dotted eighth
+            else if (totalBeats >= 0.5) { type = 'eighth'; }
+            else { type = '16th'; }
+        } else if (beatType === 8) {
+            // Logika untuk time signature X/8 (seperti 3/8, 6/8, 9/8, 12/8)
+            if (totalBeats >= 6) { type = 'half'; dots = 1; } // Dotted half
+            else if (totalBeats >= 4) { type = 'half'; }
+            else if (totalBeats >= 3) { type = 'quarter'; dots = 1; } // Dotted quarter
+            else if (totalBeats >= 2) { type = 'quarter'; }
+            else if (totalBeats >= 1.5) { type = 'eighth'; dots = 1; } // Dotted eighth
+            else if (totalBeats >= 1) { type = 'eighth'; }
+            else { type = '16th'; }
+        } else {
+            // Fallback matematis untuk time signature lainnya (misal 2/2)
+            const value = duration / (4 * divisions);
+            if (value >= 1) { type = 'whole'; }
+            else if (value >= 0.75) { type = 'half'; dots = 1; }
+            else if (value >= 0.5) { type = 'half'; }
+            else if (value >= 0.375) { type = 'quarter'; dots = 1; }
+            else if (value >= 0.25) { type = 'quarter'; }
+            else if (value >= 0.125) { type = 'eighth'; }
+            else { type = '16th'; }
+        }
+        
+        return { type, dots };
+    }
+
+    /**
+     * Menghitung durasi (dalam divisions) berdasarkan tipe not dan jumlah titik.
+     * Digunakan untuk memastikan layout tetap benar jika terjadi ketidakcocokan
+     * antara tag <duration> dan <type> di dalam file MusicXML.
+     * @param {string} typeName - Nama tipe not (misal: 'half', 'quarter').
+     * @param {number} dots - Jumlah titik (0, 1, dst).
+     * @param {number} divisions - Divisions per quarter note.
+     * @returns {number} Durasi dalam divisions.
+     */
+    static getDurationFromType(typeName, dots, divisions) {
+        const type = MusicXMLSVGRenderer.NOTE_TYPE_VALUES.find(t => t.name === typeName);
+        if (!type) return 0;
+        
+        // Nilai dasar dalam ketukan (quarter notes)
+        const baseValue = type.val; 
+        let totalValue = baseValue;
+        
+        // Tambahkan nilai titik (setiap titik menambah setengah dari nilai sebelumnya)
+        let dotValue = baseValue * 0.5;
+        for (let i = 0; i < dots; i++) {
+            totalValue += dotValue;
+            dotValue *= 0.5;
+        }
+        
+        // Konversi kembali ke divisions (1 whole note = 4 * divisions)
+        return Math.round(totalValue * 4 * divisions);
     }
 }
 
