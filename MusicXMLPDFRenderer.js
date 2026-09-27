@@ -2391,10 +2391,10 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Menentukan apakah render ini hanya untuk 1 part.
+     * Determines whether this render is for a single part only.
      *
-     * @param {Array<Element>} parts Daftar node <part> dari XML.
-     * @returns {boolean}
+     * @param {Array<Element>} parts Array of <part> nodes from the XML.
+     * @returns {boolean} True if the render is for a single part; otherwise false.
      */
     isSinglePartRender(parts) {
         if (Array.isArray(this.selectedChannels) && this.selectedChannels.length === 1) return true;
@@ -2403,10 +2403,10 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Mengecek apakah sebuah measure benar-benar silent / hanya berisi rest.
+     * Checks whether a measure is truly silent / contains only rests.
      *
-     * @param {Element} mNode Node <measure>.
-     * @returns {boolean}
+     * @param {Element} mNode The <measure> node.
+     * @returns {boolean} True if the measure is silent; otherwise false.
      */
     isMeasureSilent(mNode) {
         if (!mNode) return true;
@@ -2418,12 +2418,12 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Membuat daftar measure yang sudah dikompres.
-     * Semua measure diam berurutan digabung menjadi satu blok multi-rest.
+     * Builds a list of compressed measures.
+     * All consecutive silent measures are merged into a single multi-rest block.
      *
-     * @param {Map<number, Element>} measureMap Map nomor measure -> node measure.
-     * @param {number} totalMeasures Jumlah measure asli.
-     * @returns {Array<Object>}
+     * @param {Map<number, Element>} measureMap Map of measure number -> measure node.
+     * @param {number} totalMeasures Total number of original measures.
+     * @returns {Array<Object>} Array of compressed measure entries.
      */
     buildCompressedMeasureList(measureMap, totalMeasures) {
         const list = [];
@@ -2473,12 +2473,12 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Menggambar multi-measure rest.
+     * Draws a multi-measure rest.
      *
-     * @param {number} x X awal measure.
-     * @param {number} y Y atas staff.
-     * @param {number} width Lebar measure.
-     * @param {number} count Jumlah birama diam yang dikompres.
+     * @param {number} x Starting X coordinate of the measure.
+     * @param {number} y Top Y coordinate of the staff.
+     * @param {number} width Measure width.
+     * @param {number} count Number of compressed silent measures.
      */
     drawMultiMeasureRest(x, y, width, count) {
         const midY = y + 2 * this.lineSpacing;
@@ -2507,8 +2507,8 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Menambahkan nomor halaman "N of M" di sudut kanan bawah setiap halaman.
-     * Harus dipanggil setelah seluruh sistem selesai digambar.
+     * Adds "N of M" page numbers to the bottom-right corner of each page.
+     * Must be called after all systems have been drawn.
      *
      * @returns {void}
      */
@@ -2518,7 +2518,7 @@ class MusicXMLPDFRenderer {
         const totalPages = this.doc.getNumberOfPages();
         if (totalPages < 1) return;
 
-        // Simpan halaman aktif saat ini
+        // Save the currently active page
         const restorePage = this.doc.getCurrentPageInfo().pageNumber;
 
         const x = this.PAGE_WIDTH - this.MARGIN;
@@ -2527,7 +2527,7 @@ class MusicXMLPDFRenderer {
         for (let p = 1; p <= totalPages; p++) {
             this.doc.setPage(p);
 
-            // Bersihkan area kecil di belakang angka (anti tumpang-tindih)
+            // Clear a small area behind the number (anti-overlap)
             this.doc.setFillColor(255, 255, 255);
             this.doc.rect(x - 60, y - 10, 60, 14, 'F');
 
@@ -2537,37 +2537,38 @@ class MusicXMLPDFRenderer {
             this.doc.text(`${p} of ${totalPages}`, x, y, { align: 'right' });
         }
 
-        // Kembalikan ke halaman terakhir
+        // Restore the previously active page
         this.doc.setPage(restorePage);
     }
 
     /**
-     * Menentukan tipe not dan jumlah titik berdasarkan durasi, divisions, 
-     * dan time signature (beats & beatType).
-     * @param {number} duration - Durasi dalam divisions.
+     * Determines the note type and number of dots based on duration, divisions,
+     * and time signature (beats & beatType).
+     *
+     * @param {number} duration - Duration in divisions.
      * @param {number} divisions - Divisions per quarter note.
-     * @param {number} beats - Numerator time signature (misal: 3 untuk 3/4).
-     * @param {number} beatType - Denominator time signature (misal: 4 untuk 3/4).
-     * @returns {{type: string, dots: number}} Objek berisi tipe not dan jumlah titik.
+     * @param {number} beats - Time signature numerator (e.g., 3 for 3/4).
+     * @param {number} beatType - Time signature denominator (e.g., 4 for 3/4).
+     * @returns {{type: string, dots: number}} Object containing the note type and dot count.
      */
     static getNoteTypeAndDots(duration, divisions, beats = 4, beatType = 4) {
         if (divisions <= 0 || duration <= 0) return { type: '128th', dots: 0 };
         
-        // Hitung durasi dalam satuan quarter note
+        // Calculate duration in quarter-note units
         const quarterNotes = duration / divisions;
         
-        // Hitung nilai 1 ketukan dalam satuan quarter note
-        // (misal: di 4/4, 1 ketuk = 1 quarter note. Di 6/8, 1 ketuk = 1 eighth note = 0.5 quarter note)
+        // Calculate the value of one beat in quarter-note units
+        // (e.g., in 4/4, 1 beat = 1 quarter note. In 6/8, 1 beat = 1 eighth note = 0.5 quarter note)
         const beatValueInQuarterNotes = 4 / beatType;
         
-        // Total ketukan dari not ini
+        // Total beats of this note
         const totalBeats = quarterNotes / beatValueInQuarterNotes;
         
         let type = 'quarter';
         let dots = 0;
         
         if (beatType === 4) {
-            // Logika untuk time signature X/4 (seperti 2/4, 3/4, 4/4)
+            // Logic for X/4 time signatures (such as 2/4, 3/4, 4/4)
             if (totalBeats >= 4) { type = 'whole'; }
             else if (totalBeats >= 3) { type = 'half'; dots = 1; } // Dotted half
             else if (totalBeats >= 2) { type = 'half'; }
@@ -2577,7 +2578,7 @@ class MusicXMLPDFRenderer {
             else if (totalBeats >= 0.5) { type = 'eighth'; }
             else { type = '16th'; }
         } else if (beatType === 8) {
-            // Logika untuk time signature X/8 (seperti 3/8, 6/8, 9/8, 12/8)
+            // Logic for X/8 time signatures (such as 3/8, 6/8, 9/8, 12/8)
             if (totalBeats >= 6) { type = 'half'; dots = 1; } // Dotted half
             else if (totalBeats >= 4) { type = 'half'; }
             else if (totalBeats >= 3) { type = 'quarter'; dots = 1; } // Dotted quarter
@@ -2586,7 +2587,7 @@ class MusicXMLPDFRenderer {
             else if (totalBeats >= 1) { type = 'eighth'; }
             else { type = '16th'; }
         } else {
-            // Fallback matematis untuk time signature lainnya (misal 2/2)
+            // Mathematical fallback for other time signatures (e.g., 2/2)
             const value = duration / (4 * divisions);
             if (value >= 1) { type = 'whole'; }
             else if (value >= 0.75) { type = 'half'; dots = 1; }
@@ -2601,30 +2602,31 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Menghitung durasi (dalam divisions) berdasarkan tipe not dan jumlah titik.
-     * Digunakan untuk memastikan layout tetap benar jika terjadi ketidakcocokan
-     * antara tag <duration> dan <type> di dalam file MusicXML.
-     * @param {string} typeName - Nama tipe not (misal: 'half', 'quarter').
-     * @param {number} dots - Jumlah titik (0, 1, dst).
+     * Calculates duration (in divisions) based on note type and number of dots.
+     * Used to keep layout correct if there is a mismatch between the <duration>
+     * and <type> tags in the MusicXML file.
+     *
+     * @param {string} typeName - Note type name (e.g., 'half', 'quarter').
+     * @param {number} dots - Number of dots (0, 1, etc.).
      * @param {number} divisions - Divisions per quarter note.
-     * @returns {number} Durasi dalam divisions.
+     * @returns {number} Duration in divisions.
      */
     static getDurationFromType(typeName, dots, divisions) {
         const type = MusicXMLPDFRenderer.NOTE_TYPE_VALUES.find(t => t.name === typeName);
         if (!type) return 0;
         
-        // Nilai dasar dalam ketukan (quarter notes)
+        // Base value in beats (quarter notes)
         const baseValue = type.val; 
         let totalValue = baseValue;
         
-        // Tambahkan nilai titik (setiap titik menambah setengah dari nilai sebelumnya)
+        // Add dot value (each dot adds half of the previous value)
         let dotValue = baseValue * 0.5;
         for (let i = 0; i < dots; i++) {
             totalValue += dotValue;
             dotValue *= 0.5;
         }
         
-        // Konversi kembali ke divisions (1 whole note = 4 * divisions)
+        // Convert back to divisions (1 whole note = 4 * divisions)
         return Math.round(totalValue * 4 * divisions);
     }
 }

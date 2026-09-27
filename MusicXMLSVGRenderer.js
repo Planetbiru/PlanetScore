@@ -3695,32 +3695,33 @@ class MusicXMLSVGRenderer {
     }
 
     /**
-     * Menentukan tipe not dan jumlah titik berdasarkan durasi, divisions, 
-     * dan time signature (beats & beatType).
-     * @param {number} duration - Durasi dalam divisions.
+     * Determines the note type and number of dots based on duration, divisions,
+     * and time signature (beats & beatType).
+     *
+     * @param {number} duration - Duration in divisions.
      * @param {number} divisions - Divisions per quarter note.
-     * @param {number} beats - Numerator time signature (misal: 3 untuk 3/4).
-     * @param {number} beatType - Denominator time signature (misal: 4 untuk 3/4).
-     * @returns {{type: string, dots: number}} Objek berisi tipe not dan jumlah titik.
+     * @param {number} beats - Time signature numerator (e.g., 3 for 3/4).
+     * @param {number} beatType - Time signature denominator (e.g., 4 for 3/4).
+     * @returns {{type: string, dots: number}} Object containing the note type and dot count.
      */
     static getNoteTypeAndDots(duration, divisions, beats = 4, beatType = 4) {
         if (divisions <= 0 || duration <= 0) return { type: '128th', dots: 0 };
         
-        // Hitung durasi dalam satuan quarter note
+        // Calculate duration in quarter-note units
         const quarterNotes = duration / divisions;
         
-        // Hitung nilai 1 ketukan dalam satuan quarter note
-        // (misal: di 4/4, 1 ketuk = 1 quarter note. Di 6/8, 1 ketuk = 1 eighth note = 0.5 quarter note)
+        // Calculate the value of one beat in quarter-note units
+        // (e.g., in 4/4, 1 beat = 1 quarter note. In 6/8, 1 beat = 1 eighth note = 0.5 quarter note)
         const beatValueInQuarterNotes = 4 / beatType;
         
-        // Total ketukan dari not ini
+        // Total beats of this note
         const totalBeats = quarterNotes / beatValueInQuarterNotes;
         
         let type = 'quarter';
         let dots = 0;
         
         if (beatType === 4) {
-            // Logika untuk time signature X/4 (seperti 2/4, 3/4, 4/4)
+            // Logic for X/4 time signatures (such as 2/4, 3/4, 4/4)
             if (totalBeats >= 4) { type = 'whole'; }
             else if (totalBeats >= 3) { type = 'half'; dots = 1; } // Dotted half
             else if (totalBeats >= 2) { type = 'half'; }
@@ -3730,7 +3731,7 @@ class MusicXMLSVGRenderer {
             else if (totalBeats >= 0.5) { type = 'eighth'; }
             else { type = '16th'; }
         } else if (beatType === 8) {
-            // Logika untuk time signature X/8 (seperti 3/8, 6/8, 9/8, 12/8)
+            // Logic for X/8 time signatures (such as 3/8, 6/8, 9/8, 12/8)
             if (totalBeats >= 6) { type = 'half'; dots = 1; } // Dotted half
             else if (totalBeats >= 4) { type = 'half'; }
             else if (totalBeats >= 3) { type = 'quarter'; dots = 1; } // Dotted quarter
@@ -3739,7 +3740,7 @@ class MusicXMLSVGRenderer {
             else if (totalBeats >= 1) { type = 'eighth'; }
             else { type = '16th'; }
         } else {
-            // Fallback matematis untuk time signature lainnya (misal 2/2)
+            // Mathematical fallback for other time signatures (e.g., 2/2)
             const value = duration / (4 * divisions);
             if (value >= 1) { type = 'whole'; }
             else if (value >= 0.75) { type = 'half'; dots = 1; }
@@ -3754,30 +3755,31 @@ class MusicXMLSVGRenderer {
     }
 
     /**
-     * Menghitung durasi (dalam divisions) berdasarkan tipe not dan jumlah titik.
-     * Digunakan untuk memastikan layout tetap benar jika terjadi ketidakcocokan
-     * antara tag <duration> dan <type> di dalam file MusicXML.
-     * @param {string} typeName - Nama tipe not (misal: 'half', 'quarter').
-     * @param {number} dots - Jumlah titik (0, 1, dst).
+     * Calculates duration (in divisions) based on note type and number of dots.
+     * Used to keep layout correct if there is a mismatch between the <duration>
+     * and <type> tags in the MusicXML file.
+     *
+     * @param {string} typeName - Note type name (e.g., 'half', 'quarter').
+     * @param {number} dots - Number of dots (0, 1, etc.).
      * @param {number} divisions - Divisions per quarter note.
-     * @returns {number} Durasi dalam divisions.
+     * @returns {number} Duration in divisions.
      */
     static getDurationFromType(typeName, dots, divisions) {
         const type = MusicXMLSVGRenderer.NOTE_TYPE_VALUES.find(t => t.name === typeName);
         if (!type) return 0;
         
-        // Nilai dasar dalam ketukan (quarter notes)
+        // Base value in beats (quarter notes)
         const baseValue = type.val; 
         let totalValue = baseValue;
         
-        // Tambahkan nilai titik (setiap titik menambah setengah dari nilai sebelumnya)
+        // Add dot value (each dot adds half of the previous value)
         let dotValue = baseValue * 0.5;
         for (let i = 0; i < dots; i++) {
             totalValue += dotValue;
             dotValue *= 0.5;
         }
         
-        // Konversi kembali ke divisions (1 whole note = 4 * divisions)
+        // Convert back to divisions (1 whole note = 4 * divisions)
         return Math.round(totalValue * 4 * divisions);
     }
 }
