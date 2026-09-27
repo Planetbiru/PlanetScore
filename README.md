@@ -14,6 +14,7 @@ The project runs as a static web application. No build process or server-side co
 - Generate a multi-page PDF score using jsPDF.
 - Select one or more MIDI tracks or channels.
 - Preserve tempo, time signature, key signature, and lyric metadata.
+- **Support common time signatures, including 3/4 and 4/4, with automatic note type and dot calculation based on the time signature.**
 - Automatically split wide note ranges into multiple staves, with a **minimum-range floor** to protect narrow melodic parts (such as vocals).
 - Gate lyrics to the correct channel so they are only rendered when the melody channel is present.
 - Support percussion notation on MIDI channel 10.
@@ -134,6 +135,8 @@ Supported conversion options include:
 | `snapDuration` | `number \| null` | `null` | Snap note durations to note fractions. |
 
 Meta-only tracks are retained during conversion so that lyrics, tempo, and time-signature information remains available in the generated score.
+
+The converter reads the time signature from the MIDI file and uses it to determine note types and dots. For example, in **3/4** and **4/4** time, the note duration is interpreted relative to the beat value (quarter note), and dotted notes are generated when the duration matches a dotted value (e.g., dotted half in 3/4, dotted quarter in 4/4). This ensures that the rendered notation is rhythmically correct for these common time signatures.
 
 #### `splitThreshold` vs `minSplitRange`
 
