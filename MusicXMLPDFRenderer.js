@@ -1589,27 +1589,21 @@ class MusicXMLPDFRenderer {
                 px1 += beamOffset;
                 px2 -= beamOffset;
             }
-            this.doc.setDrawColor(...this.engraverColor);
-            this.doc.setLineWidth(3.5);
-            this.doc.line(px1, y1, px2, y2);
+
+            const thickness = 3.5;
+            const t2 = thickness / 2;
+            
+            this.doc.setFillColor(...this.engraverColor);
+            this.doc.moveTo(px1, y1 - t2);       // Kiri atas
+            this.doc.lineTo(px2, y2 - t2);       // Kanan atas
+            this.doc.lineTo(px2, y2 + t2);       // Kanan bawah
+            this.doc.lineTo(px1, y1 + t2);       // Kiri bawah
+            this.doc.close();
+            this.doc.fill();
         }
 
         // ------------------------------------------------------------
         // SECONDARY / TERTIARY BEAMS — per contiguous run
-        //
-        // Untuk setiap level L (2 atau 3), cari note-note dengan
-        // getBeamCount >= L, kelompokkan berdasarkan posisi berurutan,
-        // lalu gambar setiap run sebagai segmen terpisah.
-        //
-        // Contoh [1/2, 1/4, 1/2]:
-        //   Level 2 → runs = [ [note tengah] ]     → satu stub di tengah
-        //
-        // Contoh [1/4, 1/2, 1/4]:
-        //   Level 2 → runs = [ [kiri], [kanan] ]   → dua stub terpisah
-        //
-        // Contoh [32nd, 16th, 32nd]:
-        //   Level 2 → runs = [ [ketiga note] ]     → satu garis penuh
-        //   Level 3 → runs = [ [kiri], [kanan] ]   → dua stub terpisah
         // ------------------------------------------------------------
         const drawLevelBeams = (level) => {
             const runs = [];
@@ -1634,9 +1628,6 @@ class MusicXMLPDFRenderer {
 
             if (runs.length === 0) return;
 
-            // Offset vertikal dari primary beam
-            //   level 2 → ±5
-            //   level 3 → ±10
             const levelOffsetAbs = 5 * (level - 1);
             const offset = first.stemDown ? -levelOffsetAbs : levelOffsetAbs;
 
@@ -1652,29 +1643,22 @@ class MusicXMLPDFRenderer {
                 if (run.notes.length === 1) {
                     // ------------------------------------------------
                     // Run berisi 1 note → gambar stub (secondary flag)
-                    // Perpanjang ke arah interior grup agar tidak
-                    // menimpa note di sebelahnya.
                     // ------------------------------------------------
                     const stubLen = 9;
                     const isLeftmost  = (run.startIdx === 0);
                     const isRightmost = (run.endIdx === group.length - 1);
 
                     if (isLeftmost && !isRightmost) {
-                        // Note di ujung kiri → memanjang ke kanan
                         bx1 = firstRunNote.stemX - 0.5;
                         bx2 = firstRunNote.stemX + stubLen;
                     } else if (isRightmost && !isLeftmost) {
-                        // Note di ujung kanan → memanjang ke kiri
                         bx1 = firstRunNote.stemX - stubLen;
                         bx2 = firstRunNote.stemX + 0.5;
                     } else {
-                        // Note di tengah → simetris
                         bx1 = firstRunNote.stemX - stubLen / 2;
                         bx2 = firstRunNote.stemX + stubLen / 2;
                     }
 
-                    // Koreksi slope: kalau stub digeser dari posisi stem
-                    // aslinya, hitung ulang y agar tetap mengikuti vektor beam.
                     if (dx > 0) {
                         const ratio1 = (bx1 - x1) / dx;
                         const ratio2 = (bx2 - x1) / dx;
@@ -1694,9 +1678,16 @@ class MusicXMLPDFRenderer {
                     }
                 }
 
-                this.doc.setDrawColor(...this.engraverColor);
-                this.doc.setLineWidth(3.0);
-                this.doc.line(bx1, by1, bx2, by2);
+                const thickness = 3.0;
+                const t2 = thickness / 2;
+                
+                this.doc.setFillColor(...this.engraverColor);
+                this.doc.moveTo(bx1, by1 - t2);       // Kiri atas
+                this.doc.lineTo(bx2, by2 - t2);       // Kanan atas
+                this.doc.lineTo(bx2, by2 + t2);       // Kanan bawah
+                this.doc.lineTo(bx1, by1 + t2);       // Kiri bawah
+                this.doc.close();
+                this.doc.fill();
             });
         };
 
@@ -2391,10 +2382,10 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Determines whether this render is for a single part only.
+     * Menentukan apakah render ini hanya untuk 1 part.
      *
-     * @param {Array<Element>} parts Array of <part> nodes from the XML.
-     * @returns {boolean} True if the render is for a single part; otherwise false.
+     * @param {Array<Element>} parts Daftar node <part> dari XML.
+     * @returns {boolean}
      */
     isSinglePartRender(parts) {
         if (Array.isArray(this.selectedChannels) && this.selectedChannels.length === 1) return true;
@@ -2403,10 +2394,10 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Checks whether a measure is truly silent / contains only rests.
+     * Mengecek apakah sebuah measure benar-benar silent / hanya berisi rest.
      *
-     * @param {Element} mNode The <measure> node.
-     * @returns {boolean} True if the measure is silent; otherwise false.
+     * @param {Element} mNode Node <measure>.
+     * @returns {boolean}
      */
     isMeasureSilent(mNode) {
         if (!mNode) return true;
@@ -2418,12 +2409,12 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Builds a list of compressed measures.
-     * All consecutive silent measures are merged into a single multi-rest block.
+     * Membuat daftar measure yang sudah dikompres.
+     * Semua measure diam berurutan digabung menjadi satu blok multi-rest.
      *
-     * @param {Map<number, Element>} measureMap Map of measure number -> measure node.
-     * @param {number} totalMeasures Total number of original measures.
-     * @returns {Array<Object>} Array of compressed measure entries.
+     * @param {Map<number, Element>} measureMap Map nomor measure -> node measure.
+     * @param {number} totalMeasures Jumlah measure asli.
+     * @returns {Array<Object>}
      */
     buildCompressedMeasureList(measureMap, totalMeasures) {
         const list = [];
@@ -2473,12 +2464,12 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Draws a multi-measure rest.
+     * Menggambar multi-measure rest.
      *
-     * @param {number} x Starting X coordinate of the measure.
-     * @param {number} y Top Y coordinate of the staff.
-     * @param {number} width Measure width.
-     * @param {number} count Number of compressed silent measures.
+     * @param {number} x X awal measure.
+     * @param {number} y Y atas staff.
+     * @param {number} width Lebar measure.
+     * @param {number} count Jumlah birama diam yang dikompres.
      */
     drawMultiMeasureRest(x, y, width, count) {
         const midY = y + 2 * this.lineSpacing;
@@ -2498,7 +2489,7 @@ class MusicXMLPDFRenderer {
             (startX + endX) / 2,
             midY - 9,
             String(count),
-            11,
+            9,
             this.engraverColor,
             "center",
             true,
@@ -2507,8 +2498,8 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Adds "N of M" page numbers to the bottom-right corner of each page.
-     * Must be called after all systems have been drawn.
+     * Menambahkan nomor halaman "N of M" di sudut kanan bawah setiap halaman.
+     * Harus dipanggil setelah seluruh sistem selesai digambar.
      *
      * @returns {void}
      */
@@ -2518,7 +2509,7 @@ class MusicXMLPDFRenderer {
         const totalPages = this.doc.getNumberOfPages();
         if (totalPages < 1) return;
 
-        // Save the currently active page
+        // Simpan halaman aktif saat ini
         const restorePage = this.doc.getCurrentPageInfo().pageNumber;
 
         const x = this.PAGE_WIDTH - this.MARGIN;
@@ -2527,7 +2518,7 @@ class MusicXMLPDFRenderer {
         for (let p = 1; p <= totalPages; p++) {
             this.doc.setPage(p);
 
-            // Clear a small area behind the number (anti-overlap)
+            // Bersihkan area kecil di belakang angka (anti tumpang-tindih)
             this.doc.setFillColor(255, 255, 255);
             this.doc.rect(x - 60, y - 10, 60, 14, 'F');
 
@@ -2537,38 +2528,37 @@ class MusicXMLPDFRenderer {
             this.doc.text(`${p} of ${totalPages}`, x, y, { align: 'right' });
         }
 
-        // Restore the previously active page
+        // Kembalikan ke halaman terakhir
         this.doc.setPage(restorePage);
     }
 
     /**
-     * Determines the note type and number of dots based on duration, divisions,
-     * and time signature (beats & beatType).
-     *
-     * @param {number} duration - Duration in divisions.
+     * Menentukan tipe not dan jumlah titik berdasarkan durasi, divisions, 
+     * dan time signature (beats & beatType).
+     * @param {number} duration - Durasi dalam divisions.
      * @param {number} divisions - Divisions per quarter note.
-     * @param {number} beats - Time signature numerator (e.g., 3 for 3/4).
-     * @param {number} beatType - Time signature denominator (e.g., 4 for 3/4).
-     * @returns {{type: string, dots: number}} Object containing the note type and dot count.
+     * @param {number} beats - Numerator time signature (misal: 3 untuk 3/4).
+     * @param {number} beatType - Denominator time signature (misal: 4 untuk 3/4).
+     * @returns {{type: string, dots: number}} Objek berisi tipe not dan jumlah titik.
      */
     static getNoteTypeAndDots(duration, divisions, beats = 4, beatType = 4) {
         if (divisions <= 0 || duration <= 0) return { type: '128th', dots: 0 };
         
-        // Calculate duration in quarter-note units
+        // Hitung durasi dalam satuan quarter note
         const quarterNotes = duration / divisions;
         
-        // Calculate the value of one beat in quarter-note units
-        // (e.g., in 4/4, 1 beat = 1 quarter note. In 6/8, 1 beat = 1 eighth note = 0.5 quarter note)
+        // Hitung nilai 1 ketukan dalam satuan quarter note
+        // (misal: di 4/4, 1 ketuk = 1 quarter note. Di 6/8, 1 ketuk = 1 eighth note = 0.5 quarter note)
         const beatValueInQuarterNotes = 4 / beatType;
         
-        // Total beats of this note
+        // Total ketukan dari not ini
         const totalBeats = quarterNotes / beatValueInQuarterNotes;
         
         let type = 'quarter';
         let dots = 0;
         
         if (beatType === 4) {
-            // Logic for X/4 time signatures (such as 2/4, 3/4, 4/4)
+            // Logika untuk time signature X/4 (seperti 2/4, 3/4, 4/4)
             if (totalBeats >= 4) { type = 'whole'; }
             else if (totalBeats >= 3) { type = 'half'; dots = 1; } // Dotted half
             else if (totalBeats >= 2) { type = 'half'; }
@@ -2578,7 +2568,7 @@ class MusicXMLPDFRenderer {
             else if (totalBeats >= 0.5) { type = 'eighth'; }
             else { type = '16th'; }
         } else if (beatType === 8) {
-            // Logic for X/8 time signatures (such as 3/8, 6/8, 9/8, 12/8)
+            // Logika untuk time signature X/8 (seperti 3/8, 6/8, 9/8, 12/8)
             if (totalBeats >= 6) { type = 'half'; dots = 1; } // Dotted half
             else if (totalBeats >= 4) { type = 'half'; }
             else if (totalBeats >= 3) { type = 'quarter'; dots = 1; } // Dotted quarter
@@ -2587,7 +2577,7 @@ class MusicXMLPDFRenderer {
             else if (totalBeats >= 1) { type = 'eighth'; }
             else { type = '16th'; }
         } else {
-            // Mathematical fallback for other time signatures (e.g., 2/2)
+            // Fallback matematis untuk time signature lainnya (misal 2/2)
             const value = duration / (4 * divisions);
             if (value >= 1) { type = 'whole'; }
             else if (value >= 0.75) { type = 'half'; dots = 1; }
@@ -2602,31 +2592,30 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Calculates duration (in divisions) based on note type and number of dots.
-     * Used to keep layout correct if there is a mismatch between the <duration>
-     * and <type> tags in the MusicXML file.
-     *
-     * @param {string} typeName - Note type name (e.g., 'half', 'quarter').
-     * @param {number} dots - Number of dots (0, 1, etc.).
+     * Menghitung durasi (dalam divisions) berdasarkan tipe not dan jumlah titik.
+     * Digunakan untuk memastikan layout tetap benar jika terjadi ketidakcocokan
+     * antara tag <duration> dan <type> di dalam file MusicXML.
+     * @param {string} typeName - Nama tipe not (misal: 'half', 'quarter').
+     * @param {number} dots - Jumlah titik (0, 1, dst).
      * @param {number} divisions - Divisions per quarter note.
-     * @returns {number} Duration in divisions.
+     * @returns {number} Durasi dalam divisions.
      */
     static getDurationFromType(typeName, dots, divisions) {
         const type = MusicXMLPDFRenderer.NOTE_TYPE_VALUES.find(t => t.name === typeName);
         if (!type) return 0;
         
-        // Base value in beats (quarter notes)
+        // Nilai dasar dalam ketukan (quarter notes)
         const baseValue = type.val; 
         let totalValue = baseValue;
         
-        // Add dot value (each dot adds half of the previous value)
+        // Tambahkan nilai titik (setiap titik menambah setengah dari nilai sebelumnya)
         let dotValue = baseValue * 0.5;
         for (let i = 0; i < dots; i++) {
             totalValue += dotValue;
             dotValue *= 0.5;
         }
         
-        // Convert back to divisions (1 whole note = 4 * divisions)
+        // Konversi kembali ke divisions (1 whole note = 4 * divisions)
         return Math.round(totalValue * 4 * divisions);
     }
 }
