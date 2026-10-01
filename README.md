@@ -6,6 +6,27 @@ PlanetScore is a browser-based MIDI to sheet music renderer. It parses a MIDI fi
 
 The project runs as a static web application. No build process or server-side component is required.
 
+## Why it Made?
+
+PlanetScore was created to solve several practical challenges in digital score rendering:
+
+### Main Reasons
+1. **Direct PDF and SVG rendering from MIDI**  
+   The primary goal is to take raw MIDI files and produce sheet music in both interactive SVG and printable PDF formats, without relying on heavy external software.
+
+2. **Lightweight MusicXML intermediary**  
+   MusicXML is used only as a structural bridge for notation. It contains just the elements needed for score display (tempo, key, lyrics, staves), not playback data, which keeps the conversion pipeline lean and efficient.
+
+3. **Client‑side processing**  
+   Everything runs in the browser. This avoids server load, scales easily, and makes the application usable even on modest hosting setups without specialized backend services.
+
+### Additional Reasons
+- **Selective track rendering**: Users can choose which tracks or channels to convert, reducing resource usage and making the renderer faster.  
+- **Real‑time interactivity**: The SVG renderer supports playhead movement and note highlighting, enabling synchronized playback experiences like karaoke or guided practice.  
+- **Accessibility and portability**: As a static web app, it requires no installation or build process — just open `index.html` in a modern browser.  
+- **Flexibility for learning and collaboration**: Features like lyric gating, clef‑aware notation, and comment rendering make it suitable for education, rehearsal, and collaborative score editing.  
+- **Cross‑platform simplicity**: Runs on any modern browser (Chrome, Edge, Firefox, Safari) with ES6 support, making it widely accessible.
+
 ## Features
 
 - Parse Standard MIDI files (`.mid` and `.midi`) in the browser.
