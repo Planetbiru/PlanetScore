@@ -1715,6 +1715,9 @@ class MusicXMLPDFRenderer {
         const sx = 1.6 * scale;
         const sy = 1.2 * scale;
 
+        y = isDown ? y + 1.5 * scale : y - 1.5 * scale;
+        x = isDown ? x + 0.42 * scale : x - 0.42 * scale;
+
         this.drawSVGPath(path, x, y, sx, sy, true);
 
         if (isDouble) {
