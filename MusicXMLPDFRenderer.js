@@ -23,6 +23,9 @@ class MusicXMLPDFRenderer {
             format: 'a4'
         });
 
+        const GLOBAL_SCALE = options.scale ?? 0.8;
+        this.GLOBAL_SCALE = GLOBAL_SCALE;
+
         this.PAGE_WIDTH = this.doc.internal.pageSize.getWidth();
         this.PAGE_HEIGHT = this.doc.internal.pageSize.getHeight();
         const defaultMargin = options.margin ?? 40;
@@ -35,13 +38,16 @@ class MusicXMLPDFRenderer {
 
         this.marginTopOtherPages = options.marginTopOtherPages ?? (this.marginTop + 12);
 
-        this.baseLineSpacing = 8;
-        this.baseStaffSpacing = options.staffSpacing ?? 80;
+        this.baseLineSpacing = 8 * GLOBAL_SCALE;
+        this.baseStaffSpacing = (options.staffSpacing ?? 80) * GLOBAL_SCALE;
         this.staffSpacing = this.baseStaffSpacing;
-        this.partSpacing = options.partSpacing ?? 80;
-        this.systemSpacing = options.systemSpacing ?? 80;
+        this.partSpacing = (options.partSpacing ?? 80) * GLOBAL_SCALE;
+        this.systemSpacing = (options.systemSpacing ?? 80) * GLOBAL_SCALE;
+        this.liricYOffset = (options.liricYOffset ?? 60) * GLOBAL_SCALE;
+        this.stemLength = (options.stemLength ?? 24) * GLOBAL_SCALE;
+        this.lyricFontSize = (options.lyricFontSize ?? 10) * GLOBAL_SCALE;
+
         this.measuresPerLine = 3;
-        this.liricYOffset = options.liricYOffset ?? 60
 
         this.engraverColor = [15, 23, 42];
         this.staffLineColor = [71, 85, 105];
@@ -1107,7 +1113,7 @@ class MusicXMLPDFRenderer {
      * @returns {void}
      */
     drawTrebleClef(x, y) {
-        const scale = 0.75;
+        const scale = 0.75 * this.GLOBAL_SCALE;
         const treblePathData = "M165 177q-24 30-26 60-2 34 19 64 23 32 57 34h21l4 23q3 15 2 26-1 15-9 24-9 10-23 9-6 0-11-3l10-5q9-7 10-19 0-12-6-21-8-9-20-10t-22 9q-7 10-9 22-1 19 14 31 13 11 31 12a52 52 0 0 0 34-9q17-13 18-31 1-15-2-34l-4-29q17-5 28-20 12-15 13-36 3-25-12-46a51 51 0 0 0-46-23l-5-36q20-16 32-42 12-24 14-53 0-17-5-41-7-31-22-33-6 0-12 6a89 89 0 0 0-25 37 167 167 0 0 0-3 89q-31 29-45 45m98 97c0 12-5 31-13 36l-9-63q21 6 22 27m-41-169q1-18 9-37 10-22 16-22h3c5 0 10 2 9 15q-1 17-13 35-10 15-22 25-3-7-2-16m-6 76 3 27q-14 6-23 18-12 13-13 30-1 18 8 31 4 7 12 13c7 5 16 5 18 2q0-4-8-15-4-5-4-13 1-18 16-25l9 70-16 1q-22-2-39-19a48 48 0 0 1-16-38q3-42 53-82";
         const adjustedX = x - (16 * scale);
         const adjustedY = y + (6 * scale);
@@ -1127,7 +1133,7 @@ class MusicXMLPDFRenderer {
      * @returns {void}
      */
     drawBassClef(x, y) {
-        const scale = 0.8;
+        const scale = 0.8 * this.GLOBAL_SCALE;
         const bassPathData = "M205 23c-67 0-107 39-118 77-11 39 3 77 17 98h1a64 64 0 0 0 52 26 64 64 0 0 0 64-64 64 64 0 0 0-64-64 64 64 0 0 0-50 24l3-18c10-33 34-61 95-61 60 0 94 64 92 153-1 80-12 128-60 171q-72 65-180 107c-13 5-1 19 7 16 73-28 145-53 196-98 51-46 96-87 96-198 1-97-44-169-151-169";
         const adjustedX = x - (11 * scale);
         const tx = adjustedX + (2.5 * scale);
@@ -1153,7 +1159,7 @@ class MusicXMLPDFRenderer {
      * @returns {void}
      */
     drawAltoClef(x, y) {
-        const scaleFactor = 1.0;
+        const scaleFactor = this.GLOBAL_SCALE;
         const staffHeight = 4 * this.lineSpacing;
         const nativeClefHeight = 2362;
         const clefScale = staffHeight / nativeClefHeight * scaleFactor;
@@ -1257,7 +1263,7 @@ class MusicXMLPDFRenderer {
      * @returns {void}
      */
     drawSharp(x, y) {
-        const scale = 0.6;
+        const scale = 0.6 * this.GLOBAL_SCALE;
         const paths = [
             "M1.2 0 L1.6 0 L1.6 10 L1.2 10 Z",
             "M3.0 0 L3.4 0 L3.4 10 L3.0 10 Z",
@@ -1301,7 +1307,7 @@ class MusicXMLPDFRenderer {
      * @returns {void}
      */
     drawNatural(x, y) {
-        const scale = 0.8;
+        const scale = 0.8 * this.GLOBAL_SCALE;
         const d = "M 1 0 L 1.4 0 L 1.4 10 L 1 10 Z M 3 0 L 3.4 0 L 3.4 10 L 3 10 Z M 1 3 L 3.4 3 L 3.4 3.5 L 1 3.5 Z M 1 6.5 L 3.4 6.5 L 3.4 7 L 1 7 Z";
         const tx = x + 4.5 * scale;
         const ty = y - 10.5 * scale;
@@ -1362,16 +1368,16 @@ class MusicXMLPDFRenderer {
 
             if (note.dots > 0) {
                 for (let i = 0; i < note.dots; i++) {
-                    this.drawDot(x + 8 + (i * 8), note.y, this.engraverColor);
+                    this.drawDot(x + 8 * this.GLOBAL_SCALE + (i * 8 * this.GLOBAL_SCALE), note.y, this.engraverColor);
                 }
             }
 
             if (note.accidental === "natural") {
-                this.drawNatural(x - 14, note.y);
+                this.drawNatural(x - 14 * this.GLOBAL_SCALE, note.y);
             } else if (note.alter === 1) {
-                this.drawSharp(x - 14, note.y);
+                this.drawSharp(x - 14 * this.GLOBAL_SCALE, note.y);
             } else if (note.alter === -1) {
-                this.drawFlat(x - 14, note.y);
+                this.drawFlat(x - 14 * this.GLOBAL_SCALE, note.y);
             }
 
             if (note.lyric) {
@@ -1451,15 +1457,16 @@ class MusicXMLPDFRenderer {
         const isBeamable = firstNoteType === "eighth" || firstNoteType === "16th" || firstNoteType === "32nd";
 
         if (firstNoteType !== "whole") {
-            const stemLength = Math.max(18, this.lineSpacing * 3);
-            const noteheadRx = 7.0 * 0.8;      
-            const stemOffset = noteheadRx * 0.85; 
+            const gs = this.GLOBAL_SCALE ?? 1.0;
+            const stemLength = Math.max(18 * gs, this.lineSpacing * 3);
+            const noteheadRx = 7.0 * 0.8 * gs;         // samakan dengan drawNotehead
+            const stemOffset = noteheadRx * 0.85;
             stemX = stemDown ? x - stemOffset : x + stemOffset;
-            stemStartY = stemDown ? highestNote.y + 0.5 : lowestNote.y - 0.5;
+            stemStartY = stemDown ? highestNote.y + 0.5 * gs : lowestNote.y - 0.5 * gs;
             stemEndY = stemDown ? lowestNote.y + stemLength : highestNote.y - stemLength;
 
             this.doc.setDrawColor(...this.engraverColor);
-            this.doc.setLineWidth(1.4);
+            this.doc.setLineWidth(1.4 * gs);
             this.doc.line(stemX, stemStartY, stemX, stemEndY);
         }
 
@@ -1544,10 +1551,11 @@ class MusicXMLPDFRenderer {
      * @returns {void}
      */
     renderBeamGroup(group) {
+        const gs = this.GLOBAL_SCALE ?? 1.0;
         const first = group[0];
         const last = group[group.length - 1];
 
-        const beamOffset = 0.7;
+        const beamOffset = 0.7 * gs;   // was 0.7
 
         let x1 = first.stemX;
         let y1 = first.stemEndY;
@@ -1563,7 +1571,7 @@ class MusicXMLPDFRenderer {
                 const alignedY = y1 + ratio * dy;
                 s.stemEndY = alignedY;
                 this.doc.setDrawColor(...this.engraverColor);
-                this.doc.setLineWidth(1.4);
+                this.doc.setLineWidth(1.4 * gs);
                 this.doc.line(s.stemX, s.stemStartY, s.stemX, alignedY);
             });
         }
@@ -1593,7 +1601,7 @@ class MusicXMLPDFRenderer {
                 px2 -= beamOffset;
             }
 
-            const thickness = 3.5;
+            const thickness = 3.5 * gs;     // was 3.5
             const t2 = thickness / 2;
             
             this.doc.setFillColor(...this.engraverColor);
@@ -1628,7 +1636,7 @@ class MusicXMLPDFRenderer {
 
             if (runs.length === 0) return;
 
-            const levelOffsetAbs = 5 * (level - 1);
+            const levelOffsetAbs = 5 * (level - 1) * gs;   // was 5 * (level - 1)
             const offset = first.stemDown ? -levelOffsetAbs : levelOffsetAbs;
 
             runs.forEach(run => {
@@ -1641,7 +1649,7 @@ class MusicXMLPDFRenderer {
                 let by2 = lastRunNote.stemEndY + offset;
 
                 if (run.notes.length === 1) {
-                    const stubLen = 9;
+                    const stubLen = 9 * gs;
                     const isLeftmost  = (run.startIdx === 0);
                     const isRightmost = (run.endIdx === group.length - 1);
 
@@ -1672,7 +1680,7 @@ class MusicXMLPDFRenderer {
                     }
                 }
 
-                const thickness = 3.0;
+                const thickness = 3.0 * gs;    // was 3.0
                 const t2 = thickness / 2;
                 
                 this.doc.setFillColor(...this.engraverColor);
@@ -1699,7 +1707,7 @@ class MusicXMLPDFRenderer {
      * @returns {void}
      */
     drawStemFlag(x, y, isDown, isDouble) {
-        const scale = 1.0;
+        const scale = this.GLOBAL_SCALE ?? 1.0;
         const flagPathUp = "M -0.112 3.631 C -0.112 0 -0.3031 0 0 0 C 0.28 0.1911 0 0 0 0 C 0.42 0.6879 0.512 0.7834 0.531 0.898 C 1.4 2.8 1.4 2.8 2.327 4.051 C 4.028 5.943 4.525 7.071 4.525 8.581 C 4.506 9.994 3.263 13.014 2.996 12.899 C 3.378 11.829 3.913 10.682 4.047 9.727 C 4.219 8.561 3.741 6.879 1.831 5.16 C 0.779 4.294 0 4.2 -0.112 3.631 Z";
         const flagPathDown = "M -0.112 -3.631 C -0.112 0 -0.3031 0 0 0 C 0.28 -0.1911 0 0 0 0 C 0.42 -0.6879 0.512 -0.7834 0.531 -0.898 C 1.4 -2.8 1.4 -2.8 2.327 -4.051 C 4.028 -5.943 4.525 -7.071 4.525 -8.581 C 4.506 -9.994 3.263 -13.014 2.996 -12.899 C 3.378 -11.829 3.913 -10.682 4.047 -9.727 C 4.219 -8.561 3.741 -6.879 1.831 -5.16 C 0.779 -4.294 0 -4.2 -0.112 -3.631 Z";
 
@@ -1727,7 +1735,7 @@ class MusicXMLPDFRenderer {
      * @returns {void}
      */
     drawNotehead(cx, cy, color, isHollow, noteheadType = 'normal', channelId = -1) {
-        const scale = 0.8;
+        const scale = 0.8 * (this.GLOBAL_SCALE ?? 1.0);
         const rx = 7.0 * scale;
         const ry = 4.4 * scale;
         const strokeWidth = 2.0 * scale;
@@ -1844,8 +1852,9 @@ class MusicXMLPDFRenderer {
      */
     drawHorizontalLedger(x, lineY) {
         this.doc.setDrawColor(...this.engraverColor);
-        this.doc.setLineWidth(0.9);
-        this.doc.line(x - 11, lineY, x + 11, lineY);
+        this.doc.setLineWidth(0.9 * (this.GLOBAL_SCALE ?? 1.0));
+        const half = 11 * (this.GLOBAL_SCALE ?? 1.0);
+        this.doc.line(x - half, lineY, x + half, lineY);
     }
 
     /**
@@ -1982,7 +1991,8 @@ class MusicXMLPDFRenderer {
      */
     drawText(x, y, text, size, color, align = "left", isBold = false, font = this.FONT_SANS_SERIF, rotation = 0) {
         this.doc.setFont(font, isBold ? 'bold' : 'normal');
-        this.doc.setFontSize(size);
+        //this.doc.setFontSize(size);
+        this.doc.setFontSize(size * this.GLOBAL_SCALE);
         this.doc.setTextColor(...color);
         this.doc.text(text || "", x, y, { align: align, angle: rotation });
     }
@@ -1997,10 +2007,9 @@ class MusicXMLPDFRenderer {
      */
     drawChordSymbol(x, staffTopY, label) {
         if (!label) return;
-        const chordY = staffTopY - 16; 
-        
+        const chordY = staffTopY - 16 * this.GLOBAL_SCALE;   // ← posisi menyesuaikan
         this.doc.setFont(this.FONT_SANS_SERIF, 'bold');
-        this.doc.setFontSize(10);
+        this.doc.setFontSize(10 * this.GLOBAL_SCALE);        // ← ukuran menyesuaikan
         this.doc.setTextColor(...this.engraverColor);
         this.doc.text(label, x, chordY, { align: 'center' });
     }
@@ -2476,21 +2485,21 @@ class MusicXMLPDFRenderer {
      */
     drawMultiMeasureRest(x, y, width, count) {
         const midY = y + 2 * this.lineSpacing;
-        const barWidth = Math.min(width * 0.5, 120);
+        const barWidth = Math.min(width * 0.5, 120 * this.GLOBAL_SCALE);
         const startX = x + (width - barWidth) / 2;
         const endX = startX + barWidth;
 
         this.doc.setDrawColor(...this.engraverColor);
-        this.doc.setLineWidth(4);
+        this.doc.setLineWidth(4 * this.GLOBAL_SCALE);
         this.doc.line(startX, midY, endX, midY);
 
-        this.doc.setLineWidth(1.2);
-        this.doc.line(startX, midY - 5, startX, midY + 5);
-        this.doc.line(endX, midY - 5, endX, midY + 5);
+        this.doc.setLineWidth(1.2 * this.GLOBAL_SCALE);
+        this.doc.line(startX, midY - 5 * this.GLOBAL_SCALE, startX, midY + 5 * this.GLOBAL_SCALE);
+        this.doc.line(endX, midY - 5 * this.GLOBAL_SCALE, endX, midY + 5 * this.GLOBAL_SCALE);
 
         this.drawText(
             (startX + endX) / 2,
-            midY - 9,
+            midY - 9 * this.GLOBAL_SCALE,
             String(count),
             9,
             this.engraverColor,
@@ -2515,12 +2524,12 @@ class MusicXMLPDFRenderer {
 
         const x = this.PAGE_WIDTH - this.MARGIN;
         const y = this.PAGE_HEIGHT - this.pageNumberMarginBottom;
-
+        const placeholderWidth = 40;
         for (let p = 1; p <= totalPages; p++) {
             this.doc.setPage(p);
-
+            
             this.doc.setFillColor(255, 255, 255);
-            this.doc.rect(x - 60, y - 10, 60, 14, 'F');
+            this.doc.rect(x - placeholderWidth, y - 10, placeholderWidth, 14, 'F');
 
             this.doc.setFont(this.FONT_SANS_SERIF, 'normal');
             this.doc.setFontSize(9);
