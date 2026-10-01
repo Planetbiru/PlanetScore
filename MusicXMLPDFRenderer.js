@@ -361,6 +361,61 @@ class MusicXMLPDFRenderer {
                 });
 
                 this.drawText(systemStartX, currentY - 14, `${displayMeasureNumber}`, 10, this.subtitleColor, "left", true, this.FONT_SANS_SERIF);
+                
+                const realMeasureNumber = renderMeasure ? renderMeasure.number : measureIdx + 1;
+                const realMeasureNode = partMeasureMap[0].get(realMeasureNumber);
+                
+                if (realMeasureNode) {
+                    const metronome = realMeasureNode.querySelector("metronome");
+                    if (metronome) {
+                        const perMinute = metronome.querySelector("per-minute")?.textContent;
+                        const beatUnit  = metronome.querySelector("beat-unit")?.textContent || "quarter";
+                        
+                        if (perMinute) {
+                            const tempoY = currentY - 6;
+                            const noteX  = leftMargin + 8;
+                            const noteY  = tempoY - 1.5;
+
+                            const rx = 3.4;
+                            const ry = 2.2;
+                            const stemX = noteX + rx * 0.85;
+                            const stemTopY = noteY - 13;
+
+                            if (beatUnit === "half") {
+                                this.doc.setDrawColor(...this.engraverColor);
+                                this.doc.setFillColor(...this.engraverColor);
+                                this.doc.setLineWidth(0.9);
+                                this.drawSVGEllipse(noteX, noteY, rx - 0.4, ry - 0.4, false, 'solid', -20);
+
+                                this.doc.setLineWidth(1.0);
+                                this.doc.line(stemX, noteY - 0.5, stemX, stemTopY);
+                            } else {
+                                this.doc.setFillColor(...this.engraverColor);
+                                this.doc.setDrawColor(...this.engraverColor);
+                                this.drawSVGEllipse(noteX, noteY, rx, ry, true, 'none', -20);
+
+                                this.doc.setLineWidth(1.0);
+                                this.doc.line(stemX, noteY - 0.5, stemX, stemTopY);
+
+                                if (beatUnit === "eighth") {
+                                    this.doc.line(stemX, stemTopY, stemX + 6, stemTopY + 6);
+                                }
+                            }
+
+                            const textX = stemX + 5;
+                            this.drawText(
+                                textX,
+                                tempoY,
+                                `= ${perMinute}`,
+                                11,
+                                this.engraverColor,
+                                "left",
+                                true,
+                                this.FONT_SERIF
+                            );
+                        }
+                    }
+                }
             }
 
             const isLastMeasureInScore = (measureIdx === totalMeasures - 1);
