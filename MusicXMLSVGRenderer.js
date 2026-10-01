@@ -918,23 +918,35 @@ class MusicXMLSVGRenderer {
                 }
 
                 // ============================================================
-                // PERBAIKAN: Kelompokkan notes dengan onsetDiv yang sama,
-                // tetapi pisahkan notes yang memiliki tieStart dan yang tidak
+                // PERBAIKAN: Kelompokkan notes berdasarkan onsetDiv (menangani Chord & Tie)
                 // ============================================================
                 const columnsByOnset = {};
+                let currentBaseOnset = 0;
+
                 allNotesInMeasure.forEach(note => {
-                    // Buat key unik: onsetDiv + tieStart flag untuk memisahkan tie note dengan note berikutnya
-                    const key = note.tieStart ? `${note.onsetDiv}-tie` : `${note.onsetDiv}`;
+                    // Cek apakah node XML memiliki tag <chord/>
+                    const isChordNote = note.node.querySelector("chord") !== null;
+                    
+                    if (!isChordNote) {
+                        currentBaseOnset = note.onsetDiv;
+                    }
+                    
+                    // Gunakan currentBaseOnset agar not chord tergabung di kolom yang sama
+                    // Tetap sertakan status tie pada key agar pemisahan visual tie note terjaga
+                    const hasTie = note.tieStart || note.tieStop ? '-tie' : '';
+                    const key = `${currentBaseOnset}${hasTie}`;
+                    
                     if (!columnsByOnset[key]) columnsByOnset[key] = [];
                     columnsByOnset[key].push(note);
                 });
 
-                // Urutkan key berdasarkan onsetDiv (numeric) dan prioritaskan yang bukan tie
+                // Urutkan key berdasarkan onsetDiv (numeric) dan prioritaskan tie di belakang
                 const sortedKeys = Object.keys(columnsByOnset).sort((a, b) => {
                     const aOnset = parseInt(a);
                     const bOnset = parseInt(b);
                     if (aOnset !== bOnset) return aOnset - bOnset;
-                    // Jika onset sama, yang mengandung 'tie' diletakkan BELAKANG (agar tidak tumpang tindih)
+                    
+                    // Jika onset sama, yang mengandung 'tie' diletakkan di BELAKANG agar tidak tumpang tindih
                     if (a.includes('tie') && !b.includes('tie')) return 1;
                     if (!a.includes('tie') && b.includes('tie')) return -1;
                     return 0;
@@ -2490,6 +2502,7 @@ class MusicXMLSVGRenderer {
             return { ...note, diatonic, y: noteY };
         });
 
+        // Urutkan notes berdasarkan diatonic index (dari rendah ke tinggi)
         calculatedNotes.sort((a, b) => a.diatonic - b.diatonic);
 
         const lowestNote = calculatedNotes[0];
@@ -2497,22 +2510,20 @@ class MusicXMLSVGRenderer {
 
         const avgDiatonic = calculatedNotes.reduce((sum, n) => sum + n.diatonic, 0) / calculatedNotes.length;
 
-        // Ambang batas default per clef. Nilainya sengaja dibuat lebih rendah dari
-        // garis tengah staff supaya stem otomatis mengarah ke bawah lebih awal —
-        // tanpa harus menunggu munculnya ledger line di atas staff.
         let defaultThreshold;
         if (clefType === "F") {
-            defaultThreshold = -4; // F3, satu langkah di bawah garis tengah bass (D3)
+            defaultThreshold = -4; 
         } else if (clefType === "C") {
-            defaultThreshold = 0;  // C4, tepat di garis tengah alto
+            defaultThreshold = 0;  
         } else {
-            defaultThreshold = 4;  // G4, dua langkah di bawah garis tengah treble (B4)
+            defaultThreshold = 4;  
         }
 
         const threshold = (this.stemDirectionThreshold !== null && this.stemDirectionThreshold !== undefined)
             ? this.stemDirectionThreshold
             : defaultThreshold;
 
+        // Untuk chord, arah stem ditentukan berdasarkan rata-rata posisi not dalam chord
         const stemDown = avgDiatonic >= threshold;
 
         // Create a group for the entire note/chord column
@@ -2687,6 +2698,7 @@ class MusicXMLSVGRenderer {
         });
 
         // Stems & Flags
+        // Stems & Flags untuk Chord / Single Note (Hanya 1 stem per kolom chord)
         const firstNoteType = calculatedNotes[0].type;
         let flagElement = null;
         let stemX = x;
@@ -2696,7 +2708,10 @@ class MusicXMLSVGRenderer {
 
         if (firstNoteType !== "whole") {
             const stemLength = 28 * scale;
+            // Batang stem digambar di sebelah kiri jika stemDown (ke bawah), atau di sebelah kanan jika stemUp (ke atas)
             stemX = stemDown ? x - 6.0 * scale : x + 6.0 * scale;
+            
+            // Stem mulai dari ujung note terjauh (paling atas jika stem naik, paling bawah jika stem turun)
             const stemStartY = stemDown ? highestNote.y : lowestNote.y;
             stemEndY = stemDown ? lowestNote.y + stemLength : highestNote.y - stemLength;
 
@@ -2711,7 +2726,7 @@ class MusicXMLSVGRenderer {
             this.svg.appendChild(stemLine);
 
             if (isBeamable) {
-                flagElement = this.drawStemFlag(stemX, stemEndY, stemDown, firstNoteType === "16th");
+                flagElement = this.drawStemFlag(stemX, stemEndY, stemDown, firstNoteType === "16th" || firstNoteType === "32nd");
             }
         }
 
@@ -3695,33 +3710,32 @@ class MusicXMLSVGRenderer {
     }
 
     /**
-     * Determines the note type and number of dots based on duration, divisions,
-     * and time signature (beats & beatType).
-     *
-     * @param {number} duration - Duration in divisions.
+     * Menentukan tipe not dan jumlah titik berdasarkan durasi, divisions, 
+     * dan time signature (beats & beatType).
+     * @param {number} duration - Durasi dalam divisions.
      * @param {number} divisions - Divisions per quarter note.
-     * @param {number} beats - Time signature numerator (e.g., 3 for 3/4).
-     * @param {number} beatType - Time signature denominator (e.g., 4 for 3/4).
-     * @returns {{type: string, dots: number}} Object containing the note type and dot count.
+     * @param {number} beats - Numerator time signature (misal: 3 untuk 3/4).
+     * @param {number} beatType - Denominator time signature (misal: 4 untuk 3/4).
+     * @returns {{type: string, dots: number}} Objek berisi tipe not dan jumlah titik.
      */
     static getNoteTypeAndDots(duration, divisions, beats = 4, beatType = 4) {
         if (divisions <= 0 || duration <= 0) return { type: '128th', dots: 0 };
         
-        // Calculate duration in quarter-note units
+        // Hitung durasi dalam satuan quarter note
         const quarterNotes = duration / divisions;
         
-        // Calculate the value of one beat in quarter-note units
-        // (e.g., in 4/4, 1 beat = 1 quarter note. In 6/8, 1 beat = 1 eighth note = 0.5 quarter note)
+        // Hitung nilai 1 ketukan dalam satuan quarter note
+        // (misal: di 4/4, 1 ketuk = 1 quarter note. Di 6/8, 1 ketuk = 1 eighth note = 0.5 quarter note)
         const beatValueInQuarterNotes = 4 / beatType;
         
-        // Total beats of this note
+        // Total ketukan dari not ini
         const totalBeats = quarterNotes / beatValueInQuarterNotes;
         
         let type = 'quarter';
         let dots = 0;
         
         if (beatType === 4) {
-            // Logic for X/4 time signatures (such as 2/4, 3/4, 4/4)
+            // Logika untuk time signature X/4 (seperti 2/4, 3/4, 4/4)
             if (totalBeats >= 4) { type = 'whole'; }
             else if (totalBeats >= 3) { type = 'half'; dots = 1; } // Dotted half
             else if (totalBeats >= 2) { type = 'half'; }
@@ -3731,7 +3745,7 @@ class MusicXMLSVGRenderer {
             else if (totalBeats >= 0.5) { type = 'eighth'; }
             else { type = '16th'; }
         } else if (beatType === 8) {
-            // Logic for X/8 time signatures (such as 3/8, 6/8, 9/8, 12/8)
+            // Logika untuk time signature X/8 (seperti 3/8, 6/8, 9/8, 12/8)
             if (totalBeats >= 6) { type = 'half'; dots = 1; } // Dotted half
             else if (totalBeats >= 4) { type = 'half'; }
             else if (totalBeats >= 3) { type = 'quarter'; dots = 1; } // Dotted quarter
@@ -3740,7 +3754,7 @@ class MusicXMLSVGRenderer {
             else if (totalBeats >= 1) { type = 'eighth'; }
             else { type = '16th'; }
         } else {
-            // Mathematical fallback for other time signatures (e.g., 2/2)
+            // Fallback matematis untuk time signature lainnya (misal 2/2)
             const value = duration / (4 * divisions);
             if (value >= 1) { type = 'whole'; }
             else if (value >= 0.75) { type = 'half'; dots = 1; }
@@ -3755,31 +3769,30 @@ class MusicXMLSVGRenderer {
     }
 
     /**
-     * Calculates duration (in divisions) based on note type and number of dots.
-     * Used to keep layout correct if there is a mismatch between the <duration>
-     * and <type> tags in the MusicXML file.
-     *
-     * @param {string} typeName - Note type name (e.g., 'half', 'quarter').
-     * @param {number} dots - Number of dots (0, 1, etc.).
+     * Menghitung durasi (dalam divisions) berdasarkan tipe not dan jumlah titik.
+     * Digunakan untuk memastikan layout tetap benar jika terjadi ketidakcocokan
+     * antara tag <duration> dan <type> di dalam file MusicXML.
+     * @param {string} typeName - Nama tipe not (misal: 'half', 'quarter').
+     * @param {number} dots - Jumlah titik (0, 1, dst).
      * @param {number} divisions - Divisions per quarter note.
-     * @returns {number} Duration in divisions.
+     * @returns {number} Durasi dalam divisions.
      */
     static getDurationFromType(typeName, dots, divisions) {
         const type = MusicXMLSVGRenderer.NOTE_TYPE_VALUES.find(t => t.name === typeName);
         if (!type) return 0;
         
-        // Base value in beats (quarter notes)
+        // Nilai dasar dalam ketukan (quarter notes)
         const baseValue = type.val; 
         let totalValue = baseValue;
         
-        // Add dot value (each dot adds half of the previous value)
+        // Tambahkan nilai titik (setiap titik menambah setengah dari nilai sebelumnya)
         let dotValue = baseValue * 0.5;
         for (let i = 0; i < dots; i++) {
             totalValue += dotValue;
             dotValue *= 0.5;
         }
         
-        // Convert back to divisions (1 whole note = 4 * divisions)
+        // Konversi kembali ke divisions (1 whole note = 4 * divisions)
         return Math.round(totalValue * 4 * divisions);
     }
 }

@@ -762,14 +762,17 @@ class MidiToMusicXML {
                     });
                 }
 
-                // Process regular notes in this measure
-                notesInMeasure.forEach((note, index) => {
+                                // Process regular notes in this measure
+                // ============================================================
+                // PERBAIKAN: Kelompokkan not berdasarkan xmlStart dan staff
+                // untuk mendeteksi akor secara akurat tanpa toleransi tick
+                // ============================================================
+                const noteGroups = {};
+                notesInMeasure.forEach(note => {
                     const offsetTicks = note.ticks - measureStartTick;
+                    // Konversi tick ke divisi (pembulatan ini yang menyatukan not akor)
                     const xmlStart = Math.round((offsetTicks * divisions) / ppq);
-
-                    const chordTolerance = (ch === 9) ? 10 : 4;
-
-                    // Determine which staff this note belongs to
+                    
                     let staff = this.determineStaffForNote(
                         note.midi, 
                         ch, 
@@ -779,176 +782,176 @@ class MidiToMusicXML {
                         channelMaxNote,
                         channelNotes
                     );
-
-                    const isChord = (() => {
-                        if (index === 0) return false;
-
-                        return notesInMeasure
-                            .slice(0, index)
-                            .some(prevNote => {
-                                if (Math.abs(prevNote.ticks - note.ticks) >= chordTolerance) return false;
-
-                                let prevStaff = this.determineStaffForNote(
-                                    prevNote.midi,
-                                    ch,
-                                    channelStaves,
-                                    opts,
-                                    channelMinNote,
-                                    channelMaxNote,
-                                    channelNotes
-                                );
-
-                                return prevStaff === staff;
-                            });
-                    })();
-
-                    // ============================================================
-                    // PERBAIKAN 2: Fill gap with rest for this specific staff ONLY
-                    // ============================================================
-                    if (opts.useRestFilling && !isChord) {
-                        const gapDivs = xmlStart - staffCursor[staff];
-                        if (gapDivs > 0) {
-                            this.generateRests(gapDivs, divisions, ch, partId, staff).forEach(rest => {
-                                measureElements.push({ 
-                                    xml: rest.xml, 
-                                    staff: staff, 
-                                    startDiv: staffCursor[staff], 
-                                    durationDivs: rest.durationDivs, 
-                                    isChord: false 
-                                });
-                            });
-                            staffCursor[staff] = xmlStart;
-                        }
-                    }
                     
-                    const localEndTicks = offsetTicks + note.durationTicks;
-
-                    let noteDurationTicks = note.durationTicks;
-                    let isSpilled = false;
-
-                    // Volume dynamics formula
-                    const velocity = Math.round(note.velocity * 127);
-                    const volume = getCCValue(ccVolumeMap, ch, note.ticks, 100);
-                    const expression = getCCValue(ccExpressionMap, ch, note.ticks, 127);
-                    const dynamicsVal = Math.round((velocity / 127) * (volume / 127) * (expression / 127) * 100);
-
-                    if (localEndTicks > measureLengthTicks) {
-                        noteDurationTicks = measureLengthTicks - offsetTicks;
-                        isSpilled = true;
-
-                        tieContinue[note.midi] = {
-                            remainingTicks: note.durationTicks - noteDurationTicks,
-                            dynamics: dynamicsVal,
-                            staff: staff
-                        };
+                    // Kunci unik: posisi waktu + staff
+                    const groupKey = `${xmlStart}_${staff}`;
+                    if (!noteGroups[groupKey]) {
+                        noteGroups[groupKey] = { xmlStart, staff, notes: [] };
                     }
+                    noteGroups[groupKey].notes.push(note);
+                });
 
-                    let noteDivs = Math.round((noteDurationTicks * divisions) / ppq);
-                    if (noteDivs <= 0 && noteDurationTicks > 0) noteDivs = 1;
+                // Urutkan grup berdasarkan waktu mulai
+                const sortedGroups = Object.values(noteGroups).sort((a, b) => a.xmlStart - b.xmlStart);
 
-                    // Retrieve lyric. Only attach lyric to notes on staff 1.
-                    let lyricText = null;
-                    if (staff === 1 && lyricCarrier[note.ticks]) {
-                        lyricText = lyricCarrier[note.ticks];
-                        delete lyricCarrier[note.ticks]; 
-                    }
+                sortedGroups.forEach(group => {
+                    const { xmlStart, staff } = group;
+                    
+                    // Urutkan not di dalam akor dari pitch terendah ke tertinggi
+                    group.notes.sort((a, b) => a.midi - b.midi);
 
-                    // Simple Beam detection
-                    let beamType = null;
-                    const noteType = this.getNoteType(noteDivs, divisions);
-                    const isBeamable = ['eighth', '16th', '32nd', '64th'].includes(noteType);
-                    if (isBeamable && !isChord) {
-                        const ticksPerBeat = ppq;
-                        const beatIndex = Math.floor(offsetTicks / ticksPerBeat);
-                        const beatStart = beatIndex * ticksPerBeat;
-                        const beatEnd = (beatIndex + 1) * ticksPerBeat;
+                    group.notes.forEach((note, index) => {
+                        // Not pertama bukan chord, not kedua dan seterusnya adalah chord
+                        const isChord = (index > 0);
 
-                        const siblingNotes = notesInMeasure.filter(n => {
-                            const off = n.ticks - measureStartTick;
-                            return off >= beatStart && off < beatEnd;
-                        });
-
-                        if (siblingNotes.length > 1) {
-                            const siblingIndex = siblingNotes.indexOf(note);
-                            if (siblingIndex === 0) {
-                                beamType = "begin";
-                            } else if (siblingIndex === siblingNotes.length - 1) {
-                                beamType = "end";
-                            } else {
-                                beamType = "continue";
+                        // Fill gap with rest (hanya untuk not pertama di grup)
+                        if (opts.useRestFilling && !isChord) {
+                            const gapDivs = xmlStart - staffCursor[staff];
+                            if (gapDivs > 0) {
+                                this.generateRests(gapDivs, divisions, ch, partId, staff).forEach(rest => {
+                                    measureElements.push({ 
+                                        xml: rest.xml, 
+                                        staff: staff, 
+                                        startDiv: staffCursor[staff], 
+                                        durationDivs: rest.durationDivs, 
+                                        isChord: false 
+                                    });
+                                });
+                                staffCursor[staff] = xmlStart;
                             }
                         }
-                    }
+                        
+                        const offsetTicks = note.ticks - measureStartTick;
+                        const localEndTicks = offsetTicks + note.durationTicks;
 
-                    // Split unrepresentable note duration into pieces
-                    if (noteDivs > 0) {
-                        const notePieces = this.splitIntoRepresentableDurations(noteDivs, divisions);
-                        if (notePieces.length > 1) {
-                            notePieces.forEach((pieceDivs, pIdx) => {
-                                const isFirstPiece = (pIdx === 0);
-                                const isLastPiece = (pIdx === notePieces.length - 1);
+                        let noteDurationTicks = note.durationTicks;
+                        let isSpilled = false;
 
-                                let pieceTie = null;
-                                if (isSpilled) {
-                                    pieceTie = "start";
-                                }
+                        // Volume dynamics
+                        const velocity = Math.round(note.velocity * 127);
+                        const volume = getCCValue(ccVolumeMap, ch, note.ticks, 100);
+                        const expression = getCCValue(ccExpressionMap, ch, note.ticks, 127);
+                        const dynamicsVal = Math.round((velocity / 127) * (volume / 127) * (expression / 127) * 100);
 
-                                if (isFirstPiece) {
-                                    pieceTie = "start";
-                                } else if (isLastPiece && !isSpilled) {
-                                    pieceTie = "stop";
+                        if (localEndTicks > measureLengthTicks) {
+                            noteDurationTicks = measureLengthTicks - offsetTicks;
+                            isSpilled = true;
+
+                            tieContinue[note.midi] = {
+                                remainingTicks: note.durationTicks - noteDurationTicks,
+                                dynamics: dynamicsVal,
+                                staff: staff
+                            };
+                        }
+
+                        let noteDivs = Math.round((noteDurationTicks * divisions) / ppq);
+                        if (noteDivs <= 0 && noteDurationTicks > 0) noteDivs = 1;
+
+                        // Lyric (hanya di staff 1)
+                        let lyricText = null;
+                        if (staff === 1 && lyricCarrier[note.ticks]) {
+                            lyricText = lyricCarrier[note.ticks];
+                            delete lyricCarrier[note.ticks]; 
+                        }
+
+                        // Beam detection
+                        let beamType = null;
+                        const noteType = this.getNoteType(noteDivs, divisions);
+                        const isBeamable = ['eighth', '16th', '32nd', '64th'].includes(noteType);
+                        if (isBeamable && !isChord) {
+                            const ticksPerBeat = ppq;
+                            const beatIndex = Math.floor(offsetTicks / ticksPerBeat);
+                            const beatStart = beatIndex * ticksPerBeat;
+                            const beatEnd = (beatIndex + 1) * ticksPerBeat;
+
+                            const siblingNotes = notesInMeasure.filter(n => {
+                                const off = n.ticks - measureStartTick;
+                                return off >= beatStart && off < beatEnd;
+                            });
+
+                            if (siblingNotes.length > 1) {
+                                const siblingIndex = siblingNotes.indexOf(note);
+                                if (siblingIndex === 0) {
+                                    beamType = "begin";
+                                } else if (siblingIndex === siblingNotes.length - 1) {
+                                    beamType = "end";
                                 } else {
-                                    pieceTie = "stop_start";
+                                    beamType = "continue";
                                 }
+                            }
+                        }
 
+                        // Split duration jika tidak representatif (misal melintasi birama)
+                        if (noteDivs > 0) {
+                            const notePieces = this.splitIntoRepresentableDurations(noteDivs, divisions);
+                            if (notePieces.length > 1) {
+                                notePieces.forEach((pieceDivs, pIdx) => {
+                                    const isFirstPiece = (pIdx === 0);
+                                    const isLastPiece = (pIdx === notePieces.length - 1);
+
+                                    let pieceTie = null;
+                                    if (isSpilled) {
+                                        pieceTie = "start";
+                                    }
+
+                                    if (isFirstPiece) {
+                                        pieceTie = "start";
+                                    } else if (isLastPiece && !isSpilled) {
+                                        pieceTie = "stop";
+                                    } else {
+                                        pieceTie = "stop_start";
+                                    }
+
+                                    measureElements.push({ 
+                                        xml: this.generateNoteXML({
+                                            isChord: isChord, // <--- PERBAIKAN UTAMA: Tetap true untuk semua potongan agar tag <chord/> tidak hilang saat tie
+                                            isRest: false,
+                                            ch,
+                                            partId,
+                                            noteCode: note.midi,
+                                            durationDivs: pieceDivs,
+                                            divisions,
+                                            dynamics: dynamicsVal,
+                                            staff: staff,
+                                            tieType: pieceTie,
+                                            lyricText: isFirstPiece ? lyricText : null,
+                                            beamType: isFirstPiece ? beamType : null
+                                        }), 
+                                        staff: staff, 
+                                        startDiv: xmlStart, 
+                                        durationDivs: pieceDivs, 
+                                        isChord: isChord && isFirstPiece 
+                                    });
+                                });
+                            } else {
                                 measureElements.push({ 
                                     xml: this.generateNoteXML({
-                                        isChord: isChord && isFirstPiece,
+                                        isChord,
                                         isRest: false,
                                         ch,
                                         partId,
                                         noteCode: note.midi,
-                                        durationDivs: pieceDivs,
+                                        durationDivs: noteDivs,
                                         divisions,
                                         dynamics: dynamicsVal,
                                         staff: staff,
-                                        tieType: pieceTie,
-                                        lyricText: isFirstPiece ? lyricText : null,
-                                        beamType: isFirstPiece ? beamType : null
+                                        tieType: isSpilled ? "start" : null,
+                                        lyricText,
+                                        beamType
                                     }), 
                                     staff: staff, 
                                     startDiv: xmlStart, 
-                                    durationDivs: pieceDivs, 
-                                    isChord: isChord && isFirstPiece 
+                                    durationDivs: noteDivs, 
+                                    isChord: isChord 
                                 });
-                            });
-                        } else {
-                            measureElements.push({ 
-                                xml: this.generateNoteXML({
-                                    isChord,
-                                    isRest: false,
-                                    ch,
-                                    partId,
-                                    noteCode: note.midi,
-                                    durationDivs: noteDivs,
-                                    divisions,
-                                    dynamics: dynamicsVal,
-                                    staff: staff,
-                                    tieType: isSpilled ? "start" : null,
-                                    lyricText,
-                                    beamType
-                                }), 
-                                staff: staff, 
-                                startDiv: xmlStart, 
-                                durationDivs: noteDivs, 
-                                isChord: isChord 
-                            });
+                            }
                         }
-                    }
 
-                    if (!isChord) {
-                        staffCursor[staff] = xmlStart + noteDivs;
-                    }
+                        // Update cursor hanya untuk not pertama (bukan chord)
+                        if (!isChord) {
+                            staffCursor[staff] = xmlStart + noteDivs;
+                        }
+                    });
                 });
 
                 // ============================================================

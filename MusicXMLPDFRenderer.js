@@ -25,18 +25,14 @@ class MusicXMLPDFRenderer {
 
         this.PAGE_WIDTH = this.doc.internal.pageSize.getWidth();
         this.PAGE_HEIGHT = this.doc.internal.pageSize.getHeight();
-        // Margin lama (dipakai sebagai fallback / legacy)
         const defaultMargin = options.margin ?? 40;
         this.MARGIN = defaultMargin;
 
-        // Margin 4 sisi yang bisa diatur terpisah
-        this.marginTop         = options.marginTop         ?? defaultMargin;
-        this.marginRight       = options.marginRight       ?? defaultMargin;
-        this.marginBottom      = options.marginBottom      ?? defaultMargin;
-        this.marginLeft        = options.marginLeft        ?? defaultMargin;
+        this.marginTop        = options.marginTop        ?? defaultMargin;
+        this.marginRight      = options.marginRight      ?? defaultMargin;
+        this.marginBottom     = options.marginBottom     ?? defaultMargin;
+        this.marginLeft       = options.marginLeft       ?? defaultMargin;
 
-        // Khusus halaman ke-2 dst. Default: sedikit lebih lega dari halaman 1
-        // supaya tidak terasa sempit setelah title block hilang.
         this.marginTopOtherPages = options.marginTopOtherPages ?? (this.marginTop + 12);
 
         this.baseLineSpacing = 8;
@@ -45,11 +41,7 @@ class MusicXMLPDFRenderer {
         this.partSpacing = options.partSpacing ?? 80;
         this.systemSpacing = options.systemSpacing ?? 80;
         this.measuresPerLine = 3;
-        // Jarak baseline lirik dari garis atas staff.
-        // Standar: 36–42 pt untuk lineSpacing 8.
         this.liricYOffset = options.liricYOffset ?? 60
-
-        // Gap dari metadata (part name / composer) ke sistem pertama.
 
         this.engraverColor = [15, 23, 42];
         this.staffLineColor = [71, 85, 105];
@@ -57,15 +49,6 @@ class MusicXMLPDFRenderer {
         this.subtitleColor = [100, 116, 139];
 
         this.stepOffsets = { 'C': 0, 'D': 1, 'E': 2, 'F': 3, 'G': 4, 'A': 5, 'B': 6 };
-        // === Stem direction ===
-        // Ambang batas diatonic (posisi note di staff) saat stem otomatis
-        // mengarah ke bawah. Semakin KECIL nilainya, semakin cepat stem berubah
-        // ke bawah begitu note mulai naik.
-        //
-        // Referensi diatonic (treble):
-        //   E4 = 2  (garis bawah)   ← default
-        //   B4 = 6  (garis tengah)  ← aturan baku musik
-        //   F5 = 10 (garis atas)
         this.stemDirectionThreshold = options.stemDirectionThreshold ?? 5;
 
         this.doc.setFont('helvetica', 'normal');
@@ -79,19 +62,14 @@ class MusicXMLPDFRenderer {
         this.selectedChannels = Array.isArray(options.selectedChannels) ? options.selectedChannels : null;
         this.selectedTrack = Array.isArray(options.selectedTrack) ? options.selectedTrack : null;
         this.compressSilentMeasure = options.compressSilentMeasure === true;
-        this.showPageNumbers = options.showPageNumbers !== false; // default true
-        this.pageNumberColor = options.pageNumberColor ?? [100, 116, 139]; // subtitleColor
+        this.showPageNumbers = options.showPageNumbers !== false;
+        this.pageNumberColor = options.pageNumberColor ?? [100, 116, 139];
         this.pageNumberMarginBottom = options.pageNumberMarginBottom ?? 18;
         this.firstSystemGap = options.firstSystemGap ?? 0;
 
         this.autoClef = options.autoClef !== false;
         this.allowAltoClef = options.allowAltoClef === true;
-
-        // Cetak info keputusan auto-clef ke console untuk debugging.
         this.debugAutoClef = options.debugAutoClef;
-
-        // Ambang overflow (diatonic step) untuk auto-clef.
-        // Semakin besar, semakin konservatif (jarang swap). Default 4.
         this.clefMinOverflow = options.clefMinOverflow ?? 4;
     }
 
@@ -164,11 +142,8 @@ class MusicXMLPDFRenderer {
             totalSystemStaves += numStaves;
         });
 
-        
-
         const hasLyrics = xmlDoc.querySelector("lyric") !== null;
-        // Hitung measures per line berdasarkan lebar halaman
-        const availableWidth = this.PAGE_WIDTH - this.marginLeft - this.marginRight - 60; // 60 = space untuk clef+key+time
+        const availableWidth = this.PAGE_WIDTH - this.marginLeft - this.marginRight - 60;
         const MIN_MEASURE_WIDTH = 150;
         const IDEAL_MEASURE_WIDTH = hasLyrics ? 200 : 220;
         let mpl = Math.floor(availableWidth / IDEAL_MEASURE_WIDTH);
@@ -187,14 +162,7 @@ class MusicXMLPDFRenderer {
         }
         if (totalSystemStaves === 0) calculatedStaffSystemHeight = staffHeight;
 
-        // Hanya sisakan ruang untuk lirik (tanpa +20 ekstra).
-        // +6 sebagai margin aman agar descender huruf tidak menyentuh sistem berikutnya.
-        // Ruang ekstra di bawah staff yang dibutuhkan lirik.
-        // liricYOffset = 60, staffHeight = 32 → extra = 28.
-        // Tambah buffer 6pt untuk descender huruf (g, j, p, q, y).
         const staffBottomExtra = Math.max(0, this.liricYOffset - (4 * this.lineSpacing) + 6);
-
-        // Sistem dengan lirik butuh gap berbeda dari sistem instrumental.
         const spacingForThisSystem = hasLyrics
             ? (this.lyricsSystemSpacing ?? this.systemSpacing)
             : this.systemSpacing;
@@ -220,7 +188,6 @@ class MusicXMLPDFRenderer {
 
         let currentY = this.marginTop + 20;
 
-        // Judul (center)
         this.drawText(
             this.PAGE_WIDTH / 2,
             currentY,
@@ -232,13 +199,9 @@ class MusicXMLPDFRenderer {
             this.FONT_SERIF
         );
 
-        // ============================================================
-        // Baseline bersama untuk Composer (kanan) dan Part Name (kiri)
-        // ============================================================
         currentY += 15;
         const metadataY = currentY;
 
-        // Composer (kanan)
         if (composer) {
             this.drawText(
                 this.PAGE_WIDTH - this.marginRight,
@@ -252,7 +215,6 @@ class MusicXMLPDFRenderer {
             );
         }
 
-        // Part Name / Instrument (kiri)
         this.drawText(
             this.marginLeft,
             metadataY,
@@ -264,9 +226,7 @@ class MusicXMLPDFRenderer {
             this.FONT_SANS_SERIF
         );
 
-        // Geser currentY ke posisi berikutnya (sebelum sistem pertama)
-        currentY += 7;   // sisa 7 untuk mencapai total +22 dari judul
-
+        currentY += 7; 
         currentY += this.firstSystemGap;
         const leftMargin = this.marginLeft + 45;
         const rightMargin = this.marginRight;
@@ -281,7 +241,6 @@ class MusicXMLPDFRenderer {
             staffState[s] = { clef: "G", fifths: 0, beats: 4, beatType: 4, timeSymbol: null, divisions: 4 };
         }
 
-        // === Auto-clef: pilih clef terbaik per staff ===
         if (this.autoClef) {
             this.applyAutoClefToStaffState(partStaffMap, partMeasureMap, staffState);
         }
@@ -321,9 +280,6 @@ class MusicXMLPDFRenderer {
                         const sign = clefNode.querySelector("sign")?.textContent;
                         const staffId = pInfo.startStaffId + (clefNum - 1);
                         if (staffState[staffId] && sign) {
-                            // Jika auto-clef sudah memilih clef di measure pertama,
-                            // jangan timpa dengan clef asli dari XML.
-                            // Clef perubahan eksplisit di measure selanjutnya tetap dihormati.
                             if (measureIdx === 0 && staffState[staffId]._clefAutoApplied) {
                                 return;
                             }
@@ -349,16 +305,10 @@ class MusicXMLPDFRenderer {
                 const remainingMeasuresInSystem = Math.min(this.measuresPerLine, totalMeasures - measureIdx);
                 const systemRowWidth = (leftMargin - systemStartX) + (remainingMeasuresInSystem * measureWidth);
 
-                if (isSystemStart) {
-                    // ... (system start logic)
-                    currentX = leftMargin;
-                }
+                currentX = leftMargin;
 
-                // ============================================================
-                // PERBAIKAN: Set posisi barline untuk measure ini
-                // ============================================================
                 this.currentMeasureStartX = currentX;
-                this.currentMeasureRightX = currentX + measureWidth
+                this.currentMeasureRightX = currentX + measureWidth;
 
                 this.drawSystemStartLine(systemStartX, currentY, calculatedStaffSystemHeight);
 
@@ -474,6 +424,75 @@ class MusicXMLPDFRenderer {
                 let lastBaseDiv = 0;
                 const allNotesInMeasure = [];
                 const currentStaffDivisions = state.divisions;
+                
+                // Replace the previous harmony parsing block with this implementation.
+                const harmoniesInMeasure = [];
+                {
+                    let timeInDivs = 0;
+                    let currentDivisions = state.divisions;
+                    
+                    Array.from(mNode.children).forEach(child => {
+                        const tag = child.tagName;
+                        if (tag === "attributes") {
+                            const div = parseInt(child.querySelector("divisions")?.textContent || "0", 10);
+                            if (div > 0) currentDivisions = div;
+                        } else if (tag === "note") {
+                            const isChord = child.querySelector("chord") !== null;
+                            if (!isChord) {
+                                const dur = parseInt(child.querySelector("duration")?.textContent || "0", 10);
+                                timeInDivs += dur;
+                            }
+                        } else if (tag === "forward") {
+                            const dur = parseInt(child.querySelector("duration")?.textContent || "0", 10);
+                            timeInDivs += dur;
+                        } else if (tag === "backup") {
+                            const dur = parseInt(child.querySelector("duration")?.textContent || "0", 10);
+                            timeInDivs -= dur;
+                        } else {
+                            // Check for a direct <harmony> element or one nested inside <direction>.
+                            const harmonyNode = (tag === "harmony") ? child : child.querySelector("harmony");
+                            if (harmonyNode) {
+                                const rootStep = harmonyNode.querySelector("root root-step")?.textContent || "";
+                                const rootAlter = parseInt(harmonyNode.querySelector("root root-alter")?.textContent || "0", 10);
+                                const kind = harmonyNode.querySelector("kind")?.textContent || "";
+                                
+                                let alterSymbol = "";
+                                if (rootAlter === 1) alterSymbol = "#";
+                                else if (rootAlter === -1) alterSymbol = "b";
+                                else if (rootAlter === 2) alterSymbol = "##";
+                                else if (rootAlter === -2) alterSymbol = "bb";
+                                
+                                let kindText = "";
+                                switch (kind) {
+                                    case "major": kindText = ""; break;
+                                    case "minor": kindText = "m"; break;
+                                    case "dominant": kindText = "7"; break;
+                                    case "major-seventh": kindText = "maj7"; break;
+                                    case "minor-seventh": kindText = "m7"; break;
+                                    case "diminished": kindText = "dim"; break;
+                                    case "augmented": kindText = "aug"; break;
+                                    case "suspended-fourth": kindText = "sus4"; break;
+                                    case "suspended-second": kindText = "sus2"; break;
+                                    case "half-diminished": kindText = "m7b5"; break;
+                                    case "major-sixth": kindText = "6"; break;
+                                    case "minor-sixth": kindText = "m6"; break;
+                                    default: kindText = kind; break;
+                                }
+                                
+                                const chordLabel = `${rootStep}${alterSymbol}${kindText}`.trim();
+                                const offsetNode = harmonyNode.querySelector("offset");
+                                const offsetDiv = offsetNode ? parseInt(offsetNode.textContent, 10) : 0;
+                                
+                                if (chordLabel) {
+                                    harmoniesInMeasure.push({
+                                        label: chordLabel,
+                                        onsetDiv: Math.max(0, timeInDivs + offsetDiv)
+                                    });
+                                }
+                            }
+                        }
+                    });
+                }
 
                 mNode.querySelectorAll("note").forEach(originalNoteNode => {
                     const noteStaff = parseInt(originalNoteNode.querySelector("staff")?.textContent || "1", 10);
@@ -497,11 +516,11 @@ class MusicXMLPDFRenderer {
                         pieces = MusicXMLPDFRenderer.splitDurationIntoRepresentablePieces(originalDuration, currentStaffDivisions);
                     }
 
-                    let pieceCurrentDiv = isChord ? lastBaseDiv : currentDiv;
-
-                    // TAMBAHKAN BARIS INI: Ekstrak tipe dan dot langsung dari XML
+                    // Preserve this note's onset. For chord notes, use the base note's onset (lastBaseDiv).
+                    const baseOnsetDiv = isChord ? lastBaseDiv : currentDiv;
+                    let pieceCurrentDiv = baseOnsetDiv;
                     const xmlType = originalNoteNode.querySelector("type")?.textContent;
-                    const xmlDots = originalNoteNode.querySelectorAll("dot").length;  
+                    const xmlDots = originalNoteNode.querySelectorAll("dot").length; 
 
                     pieces.forEach((pieceDuration, pIdx) => {
                         const isFirstPiece = (pIdx === 0);
@@ -526,36 +545,25 @@ class MusicXMLPDFRenderer {
                             pieceTieStop = originalTieStop;
                         }
 
-                        // ============================================================
-                        // PERBAIKAN: Override tipe not untuk birama 3/4
-                        // ============================================================
                         let finalType, finalDots;
                         let finalDuration = pieceDuration;
 
-                        // Cek apakah ini not yang memenuhi seluruh birama 3/4
-                        // 3 ketuk = 3 * divisions (misal: 3 * 512 = 1536)
                         const isFullMeasure3_4 = (state.beats === 3 && state.beatType === 4) && 
                                                  (Math.abs(pieceDuration - (3 * currentStaffDivisions)) < 1);
 
                         if (isFullMeasure3_4 && !isRest) {
-                            // PAKSA menjadi whole note (sesuai permintaan Anda)
                             finalType = 'whole';
                             finalDots = 0;
-                            
-                            // Pastikan durasi tetap 3 ketuk (1536) agar tidak menggeser not lain
                             finalDuration = pieceDuration; 
                         } else if (pieces.length === 1 && xmlType) {
-                            // Jika bukan full measure 3/4, baru gunakan tipe dari XML
                             finalType = xmlType;
                             finalDots = xmlDots;
                             
-                            // Sinkronisasi durasi jika XML tidak konsisten
                             const expectedDuration = MusicXMLPDFRenderer.getDurationFromType(xmlType, xmlDots, currentStaffDivisions);
                             if (expectedDuration > 0 && Math.abs(expectedDuration - pieceDuration) > 1) {
                                 finalDuration = expectedDuration;
                             }
                         } else {
-                            // Fallback: Hitung berdasarkan time signature
                             const typeAndDots = MusicXMLPDFRenderer.getNoteTypeAndDots(
                                 pieceDuration, 
                                 currentStaffDivisions, 
@@ -583,7 +591,7 @@ class MusicXMLPDFRenderer {
                             dots: finalDots,
                             lyric: isFirstPiece ? lyricText : null,
                             onsetDiv: pieceCurrentDiv,
-                            duration: finalDuration, // <-- Gunakan durasi yang sudah diperbaiki
+                            duration: finalDuration,
                             tieStart: pieceTieStart,
                             tieStop: pieceTieStop,
                             divisions: currentStaffDivisions,
@@ -597,14 +605,13 @@ class MusicXMLPDFRenderer {
                     });
 
                     if (!isChord) {
-                        currentDiv = pieceCurrentDiv;
+                        currentDiv = pieceCurrentDiv;   // Advance the position only for non-chord notes.
                     }
-                    lastBaseDiv = currentDiv;
+                    lastBaseDiv = baseOnsetDiv;        // Preserve the onset, not the ending position.
                 });
 
                 const totalMeasureDivs = Math.max(measureDuration, currentDiv, 1);
 
-                // Isi measure kosong dengan rest
                 if (allNotesInMeasure.length === 0) {
                     allNotesInMeasure.push({
                         isRest: true,
@@ -648,12 +655,18 @@ class MusicXMLPDFRenderer {
                     }
                 }
 
-                // ============================================================
-                // PENGELOMPOKAN KOLOM (sama dengan SVG Renderer)
-                // ============================================================
                 const columnsByOnset = {};
+                let currentBaseOnset = 0;
+
                 allNotesInMeasure.forEach(note => {
-                    const key = note.tieStart ? `${note.onsetDiv}-tie` : `${note.onsetDiv}`;
+                    const isChordNote = note.node && note.node.querySelector("chord") !== null;
+                    if (!isChordNote) {
+                        currentBaseOnset = note.onsetDiv;
+                    }
+                    
+                    const hasTie = note.tieStart || note.tieStop ? '-tie' : '';
+                    const key = `${currentBaseOnset}${hasTie}`;
+                    
                     if (!columnsByOnset[key]) columnsByOnset[key] = [];
                     columnsByOnset[key].push(note);
                 });
@@ -662,6 +675,7 @@ class MusicXMLPDFRenderer {
                     const aOnset = parseInt(a);
                     const bOnset = parseInt(b);
                     if (aOnset !== bOnset) return aOnset - bOnset;
+                    
                     if (a.includes('tie') && !b.includes('tie')) return 1;
                     if (!a.includes('tie') && b.includes('tie')) return -1;
                     return 0;
@@ -682,35 +696,36 @@ class MusicXMLPDFRenderer {
                     const hasTieStop = colNotes.some(n => n.tieStop);
                     const isChord = colNotes.length > 1;
 
-                    // Tie stop: geser ke kiri
                     if (hasTieStop && !hasTieStart && !isChord && allColumns.length > 0) {
                         colX -= 16;
                     }
 
-                    // Tie + non-tie di posisi yang sama: geser tie
                     const hasNonTie = colNotes.some(n => !n.tieStart && !n.tieStop);
                     if (hasTieStart && hasNonTie) {
                         colX -= 14;
                     }
 
-                    // Pastikan tidak tumpang tindih
                     if (colX <= lastX + 5) {
                         colX = lastX + 12;
                     }
                     lastX = colX;
+
+                    // Match harmony symbols to note columns using a tolerance based on staff divisions.
+                    const tol = Math.max(4, Math.round(currentStaffDivisions / 4));
+                    const matchedHarmonies = harmoniesInMeasure.filter(h => Math.abs(h.onsetDiv - onset) < tol);
 
                     allColumns.push({
                         key: key,
                         onset: onset,
                         colX: colX,
                         colNotes: colNotes,
+                        harmonies: matchedHarmonies,
                         hasTieStart: hasTieStart,
                         hasTieStop: hasTieStop,
                         isChord: isChord
                     });
                 });
 
-                // Pass kedua: deteksi tumpang tindih antar kolom
                 for (let i = 0; i < allColumns.length - 1; i++) {
                     const current = allColumns[i];
                     const next = allColumns[i + 1];
@@ -728,9 +743,16 @@ class MusicXMLPDFRenderer {
                     }
                 }
 
-                // Gambar semua kolom
                 const renderedStems = [];
                 allColumns.forEach(col => {
+                    // Render chord labels only on the first staff, aligned with the note column.
+                    if (localStaff === 1 && col.harmonies && col.harmonies.length > 0) {
+                        col.harmonies.forEach(harmony => {
+                            this.drawChordSymbol(col.colX, sY, harmony.label);
+                        });
+                    }
+
+                    // Draw the notes, including notes stacked in a chord.
                     const stemData = this.drawNoteColumn(
                         col.colX,
                         sY,
@@ -744,7 +766,6 @@ class MusicXMLPDFRenderer {
                     }
                 });
 
-                // Render beams
                 this.drawBeams(renderedStems);
 
                 currentStaffYOffset += (4 * this.lineSpacing);
@@ -760,12 +781,12 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Menganalisis distribusi pitch untuk setiap staff, lalu memilih clef
-     * terbaik (G/F/C) dan menuliskannya ke staffState.
+     * Selects and applies a clef for each staff based on its pitch range.
      *
-     * @param {Array<Object>} partStaffMap Info staff per part.
-     * @param {Array<Map>} partMeasureMap Map nomor measure -> node.
-     * @param {Object} staffState State staff yang akan dimodifikasi.
+     * @param {Array<Object>} partStaffMap Metadata describing each part's staves.
+     * @param {Array<Map<number, Element>>} partMeasureMap Measure nodes indexed by part and measure number.
+     * @param {Object} staffState Mutable state keyed by global staff ID.
+     * @returns {void}
      */
     applyAutoClefToStaffState(partStaffMap, partMeasureMap, staffState) {
         const stats = this.analyzeStaffPitchRanges(partStaffMap, partMeasureMap);
@@ -782,25 +803,15 @@ class MusicXMLPDFRenderer {
             const chosen = this.pickClefForRange(stat, originalClef);
             staffState[s].clef = chosen;
             staffState[s]._clefAutoApplied = true;
-
-            if (this.debugAutoClef) {
-                console.log(
-                    `[AutoClef] staff ${s}: ` +
-                    `avgDiatonic=${stat.avgDiatonic.toFixed(2)}, ` +
-                    `min=${stat.minDiatonic}, max=${stat.maxDiatonic}, ` +
-                    `original=${originalClef} → chosen=${chosen}`
-                );
-            }
         }
     }
 
     /**
-     * Mengumpulkan statistik pitch (min, max, rata-rata berbobot durasi)
-     * untuk setiap staff di seluruh part.
+     * Analyzes the pitch range and duration-weighted average pitch of each staff.
      *
-     * @param {Array<Object>} partStaffMap
-     * @param {Array<Map>} partMeasureMap
-     * @returns {Object} Map: staffId -> { minDiatonic, maxDiatonic, avgDiatonic, hasNotes, noteCount }
+     * @param {Array<Object>} partStaffMap Metadata describing each part's staves.
+     * @param {Array<Map<number, Element>>} partMeasureMap Measure nodes indexed by part and measure number.
+     * @returns {Object} Pitch statistics keyed by global staff ID.
      */
     analyzeStaffPitchRanges(partStaffMap, partMeasureMap) {
         const result = {};
@@ -853,46 +864,31 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Memilih clef berdasarkan seberapa jauh rentang pitch keluar dari staff
-     * clef asli. Hanya swap kalau ada overflow yang signifikan — supaya
-     * instrumen yang sudah punya clef konvensional (violin → treble,
-     * cello → bass) tidak diubah tanpa alasan kuat.
+     * Chooses the most suitable clef for a staff's pitch range.
      *
-     * Staff ranges (diatonic):
-     *   G (treble): E4=2  .. F5=10
-     *   C (alto)  : F3=-4 .. G4=4
-     *   F (bass)  : G2=-10 .. A3=-2
-     *
-     * @param {Object} stat Statistik pitch staff: { minDiatonic, maxDiatonic, avgDiatonic }
-     * @param {string} originalClef Clef awal dari XML ("G" | "F" | "C").
-     * @returns {string} Clef terpilih.
+     * @param {Object} stat Pitch range statistics for the staff.
+     * @param {string} originalClef Clef specified by the source MusicXML.
+     * @returns {string} Selected clef sign: G, F, or C.
      */
     pickClefForRange(stat, originalClef) {
         const { minDiatonic, maxDiatonic, avgDiatonic } = stat;
         const current = originalClef || "G";
 
-        // Rentang nyaman tiap clef (5 garis staff).
         const staffRange = {
-            G: { min:  0, max: 12 }, // C4 .. A5 (allow 1 ledger line each side)
-            C: { min: -6, max:  6 }, // D3 .. B4
-            F: { min: -12, max: 0 }  // C2 .. C4
+            G: { min:  0, max: 12 },
+            C: { min: -6, max:  6 },
+            F: { min: -12, max: 0 } 
         };
 
-        // Berapa banyak "overflow" di luar staff clef sekarang.
         const range = staffRange[current] || staffRange.G;
         const overflowBelow = Math.max(0, range.min - minDiatonic);
         const overflowAbove = Math.max(0, maxDiatonic - range.max);
-
-        // Ambang minimal: butuh overflow setara ~4 langkah diatonic (≈ 1 oktaf)
-        // sebelum kita menganggap clef asli sudah tidak layak.
         const MIN_OVERFLOW = this.clefMinOverflow ?? 4;
 
-        // Kalau masih muat di clef asli, jangan ubah sama sekali.
         if (overflowBelow < MIN_OVERFLOW && overflowAbove < MIN_OVERFLOW) {
             return current;
         }
 
-        // Mode 3-clef (alto diizinkan): pilih clef dengan pusat terdekat.
         if (this.allowAltoClef) {
             const centers = { G: 6, C: 0, F: -6 };
             const candidates = ["G", "C", "F"];
@@ -905,31 +901,27 @@ class MusicXMLPDFRenderer {
             return best;
         }
 
-        // Mode 2-clef (G <-> F).
-        // Kalau lebih banyak overflow ke bawah → pilih clef yang lebih rendah.
         if (overflowBelow > overflowAbove) {
-            if (current === "G") return "F"; // treble → bass
-            if (current === "C") return "F"; // alto   → bass
-            return current;                   // bass sudah paling rendah, biarkan
+            if (current === "G") return "F";
+            if (current === "C") return "F";
+            return current;
         }
 
-        // Kalau lebih banyak overflow ke atas → pilih clef yang lebih tinggi.
         if (overflowAbove > overflowBelow) {
-            if (current === "F") return "G"; // bass → treble
-            if (current === "C") return "G"; // alto → treble
-            return current;                   // treble sudah paling tinggi, biarkan
+            if (current === "F") return "G";
+            if (current === "C") return "G";
+            return current;
         }
 
         return current;
     }
 
     /**
-     * Membaca clef awal dari XML untuk staff tertentu.
-     * Berguna untuk memutuskan arah perpindahan clef.
+     * Reads the initial clef for a local staff from a part's first measure.
      *
-     * @param {Object} pInfo Info part.
-     * @param {number} localStaff Nomor staff lokal di dalam part (1-based).
-     * @returns {string} "G" | "F" | "C"
+     * @param {Object} pInfo Metadata for the part containing the staff.
+     * @param {number} localStaff One-based staff number within the part.
+     * @returns {string} Clef sign, defaulting to G when none is specified.
      */
     getInitialClefFromXml(pInfo, localStaff) {
         const firstMeasure = pInfo.partNode.querySelector("measure");
@@ -956,10 +948,6 @@ class MusicXMLPDFRenderer {
         this.doc.save(filename);
     }
 
-    // ============================================================
-    // DRAWING PRIMITIVES
-    // ============================================================
-
     /**
      * Draws the five staff lines for a given staff and width.
      *
@@ -976,7 +964,6 @@ class MusicXMLPDFRenderer {
             this.doc.line(x, lineY, x + width, lineY);
         }
 
-        // === BARU: simpan batas kiri/kanan sistem untuk tie antar-sistem ===
         this.currentSystemLeftX  = x;
         this.currentSystemRightX = x + width;
     }
@@ -1177,13 +1164,12 @@ class MusicXMLPDFRenderer {
 
         const count = Math.abs(fifths);
 
-        // Posisi standar key signature per clef (diatonic index)
-        const trebleSharps = [10, 7, 11, 8, 5, 9, 6];      // F5 C5 G5 D5 A4 E5 B4
-        const trebleFlats  = [6, 9, 5, 8, 4, 7, 3];        // B4 E5 A4 D5 G4 C5 F4
-        const bassSharps   = [-4, -7, -3, -6, -9, -5, -8]; // F3 C3 G3 D3 A2 E3 B2
+        const trebleSharps = [10, 7, 11, 8, 5, 9, 6];        // F5 C5 G5 D5 A4 E5 B4
+        const trebleFlats  = [6, 9, 5, 8, 4, 7, 3];          // B4 E5 A4 D5 G4 C5 F4
+        const bassSharps   = [-4, -7, -3, -6, -9, -5, -8];   // F3 C3 G3 D3 A2 E3 B2
         const bassFlats    = [-8, -5, -9, -6, -10, -7, -11]; // B2 E3 A2 D3 G2 C3 F2
-        const altoSharps   = [3, 0, 4, 1, -2, 2, -1];      // F4 C4 G4 D4 A3 E4 B3
-        const altoFlats    = [-1, 2, -2, 1, -3, 0, -4];    // B3 E4 A3 D4 G3 C4 F3
+        const altoSharps   = [3, 0, 4, 1, -2, 2, -1];        // F4 C4 G4 D4 A3 E4 B3
+        const altoFlats    = [-1, 2, -2, 1, -3, 0, -4];      // B3 E4 A3 D4 G3 C4 F3
 
         let positions;
         if (clefType === "F") {
@@ -1270,9 +1256,6 @@ class MusicXMLPDFRenderer {
         this.drawSVGPath(d, tx, ty, sx, sy, true);
     }
 
-    // ============================================================
-    // DRAW NOTE COLUMN (mengembalikan stem data untuk beaming)
-    // ============================================================
     /**
      * Draws a note column, including rest handling, accidentals, ties, and stem metadata.
      *
@@ -1312,19 +1295,12 @@ class MusicXMLPDFRenderer {
         const highestNote = calculatedNotes[calculatedNotes.length - 1];
 
         const avgDiatonic = calculatedNotes.reduce((sum, n) => sum + n.diatonic, 0) / calculatedNotes.length;
-
-        // Ambang batas default: 2 (setara E4 di treble). Karena diatonic index
-        // bersifat absolut (C4 = 0), nilai yang sama juga berlaku di clef lain —
-        // bass passage yang setara (E2 = -12) tetap di bawah threshold, sehingga
-        // bass tetap dominan stem ke bawah. Ini konsisten dengan SVG renderer.
         const stemDown = avgDiatonic >= this.stemDirectionThreshold;
 
-        // Ledger lines dulu
         calculatedNotes.forEach(note => {
             this.drawLedgerLines(x, y, note.diatonic, clefType);
         });
 
-        // Gambar note head, accidental, dots, lyric, tie
         calculatedNotes.forEach(note => {
             const isHollow = note.type === "whole" || note.type === "half";
             this.drawNotehead(x, note.y, this.engraverColor, isHollow, note.notehead, channelId);
@@ -1347,7 +1323,6 @@ class MusicXMLPDFRenderer {
                 this.drawText(x, y + this.liricYOffset, note.lyric, this.lyricFontSize, this.engraverColor, "center", false, this.resolveFontFamily(this.lyricFontFamily));
             }
 
-            // Tie
             const { tieStart, tieStop } = note;
             const pitchKey = `${note.step}${note.alter}${note.octave}${note.staff}`;
 
@@ -1366,15 +1341,10 @@ class MusicXMLPDFRenderer {
                     const currentPage = this.doc.getCurrentPageInfo().pageNumber;
                     const prevPage    = prev.pageNumber;
 
-                    // ============================================================
-                    // SEGMEN 1 — digambar di HALAMAN SEBELUMNYA
-                    // ============================================================
                     if (prevPage !== undefined && prevPage !== currentPage) {
                         this.doc.setPage(prevPage);
                     }
 
-                    // Pakai systemRightX yang disimpan saat tieStart, bukan this.currentSystemRightX
-                    // (nilai ini sudah ditimpa oleh drawStaffLines sistem baru)
                     const systemRightX = prev.systemRightX ?? (prev.x + 22);
                     const endX1 = systemRightX;
                     const cx1   = (prev.x + endX1) / 2;
@@ -1385,14 +1355,10 @@ class MusicXMLPDFRenderer {
                     this.doc.setFillColor(...this.engraverColor);
                     this.drawSVGPath(d1, 0, 0, 1, 1, true, 'none');
 
-                    // Kembali ke halaman sekarang
                     if (prevPage !== undefined && prevPage !== currentPage) {
                         this.doc.setPage(currentPage);
                     }
 
-                    // ============================================================
-                    // SEGMEN 2 — digambar di HALAMAN SEKARANG
-                    // ============================================================
                     const systemLeftX = this.currentSystemLeftX ?? (x - 40);
                     const startX2 = systemLeftX;
                     const cx2 = (startX2 + x) / 2;
@@ -1418,13 +1384,11 @@ class MusicXMLPDFRenderer {
                     x: x, 
                     y: note.y,
                     pageNumber:    this.doc.getCurrentPageInfo().pageNumber,
-                    systemRightX:  this.currentSystemRightX  // <-- simpan untuk segmen 1 di sistem berikutnya
+                    systemRightX:  this.currentSystemRightX 
                 };
             }
-
         });
 
-        // Stem & flag
         const firstNoteType = calculatedNotes[0].type;
         let stemX = x;
         let stemStartY = y;
@@ -1433,8 +1397,8 @@ class MusicXMLPDFRenderer {
 
         if (firstNoteType !== "whole") {
             const stemLength = Math.max(18, this.lineSpacing * 3);
-            const noteheadRx = 7.0 * 0.8;      // ≈ 5.6
-            const stemOffset = noteheadRx * 0.85; // ≈ 4.76
+            const noteheadRx = 7.0 * 0.8;      
+            const stemOffset = noteheadRx * 0.85; 
             stemX = stemDown ? x - stemOffset : x + stemOffset;
             stemStartY = stemDown ? highestNote.y + 0.5 : lowestNote.y - 0.5;
             stemEndY = stemDown ? lowestNote.y + stemLength : highestNote.y - stemLength;
@@ -1442,7 +1406,6 @@ class MusicXMLPDFRenderer {
             this.doc.setDrawColor(...this.engraverColor);
             this.doc.setLineWidth(1.4);
             this.doc.line(stemX, stemStartY, stemX, stemEndY);
-            // JANGAN gambar flag di sini — biarkan beaming yang memutuskan
         }
 
         const beatDurationDivs = Math.max(1, (notes[0].divisions || 4) * (4 / (notes[0].beatType || 4)));
@@ -1458,13 +1421,9 @@ class MusicXMLPDFRenderer {
             beatIndex: Math.floor(lowestNote.onsetDiv / beatDurationDivs),
             beatDurationDivs: beatDurationDivs,
             divisions: notes[0].divisions
-            // flagElement DIHAPUS — tidak dipakai lagi
         };
     }
 
-    // ============================================================
-    // BEAMING
-    // ============================================================
     /**
      * Groups stems into beamed note clusters and renders beams for each group.
      *
@@ -1473,7 +1432,6 @@ class MusicXMLPDFRenderer {
      */
     drawBeams(stems) {
         if (!stems || stems.length < 2) {
-            // Tidak ada group, gambar flag untuk semua note
             stems.forEach(s => this.drawFlagForStem(s));
             return;
         }
@@ -1502,7 +1460,6 @@ class MusicXMLPDFRenderer {
             i = j;
         }
 
-        // Gambar flag HANYA untuk note yang TIDAK di-beam
         stems.forEach(s => {
             if (!s._beamed) {
                 this.drawFlagForStem(s);
@@ -1545,9 +1502,6 @@ class MusicXMLPDFRenderer {
         const dx = x2 - x1;
         const dy = y2 - y1;
 
-        // ------------------------------------------------------------
-        // Selaraskan stem antara ke vektor beam
-        // ------------------------------------------------------------
         if (dx > 0) {
             group.forEach(s => {
                 const ratio = (s.stemX - x1) / dx;
@@ -1559,9 +1513,6 @@ class MusicXMLPDFRenderer {
             });
         }
 
-        // ------------------------------------------------------------
-        // Jumlah beam per tipe note
-        // ------------------------------------------------------------
         const getBeamCount = (type) => {
             switch (type) {
                 case '32nd': return 3;
@@ -1576,9 +1527,6 @@ class MusicXMLPDFRenderer {
             maxBeamLevel = Math.max(maxBeamLevel, getBeamCount(s.type));
         });
 
-        // ------------------------------------------------------------
-        // PRIMARY BEAM (level 1) — satu garis penuh dari awal ke akhir
-        // ------------------------------------------------------------
         {
             let px1 = x1;
             let px2 = x2;
@@ -1594,17 +1542,14 @@ class MusicXMLPDFRenderer {
             const t2 = thickness / 2;
             
             this.doc.setFillColor(...this.engraverColor);
-            this.doc.moveTo(px1, y1 - t2);       // Kiri atas
-            this.doc.lineTo(px2, y2 - t2);       // Kanan atas
-            this.doc.lineTo(px2, y2 + t2);       // Kanan bawah
-            this.doc.lineTo(px1, y1 + t2);       // Kiri bawah
+            this.doc.moveTo(px1, y1 - t2);       
+            this.doc.lineTo(px2, y2 - t2);       
+            this.doc.lineTo(px2, y2 + t2);       
+            this.doc.lineTo(px1, y1 + t2);       
             this.doc.close();
             this.doc.fill();
         }
 
-        // ------------------------------------------------------------
-        // SECONDARY / TERTIARY BEAMS — per contiguous run
-        // ------------------------------------------------------------
         const drawLevelBeams = (level) => {
             const runs = [];
             let currentRun = null;
@@ -1641,9 +1586,6 @@ class MusicXMLPDFRenderer {
                 let by2 = lastRunNote.stemEndY + offset;
 
                 if (run.notes.length === 1) {
-                    // ------------------------------------------------
-                    // Run berisi 1 note → gambar stub (secondary flag)
-                    // ------------------------------------------------
                     const stubLen = 9;
                     const isLeftmost  = (run.startIdx === 0);
                     const isRightmost = (run.endIdx === group.length - 1);
@@ -1666,9 +1608,6 @@ class MusicXMLPDFRenderer {
                         by2 = y1 + ratio2 * dy + offset;
                     }
                 } else {
-                    // ------------------------------------------------
-                    // Run berisi banyak note → garis beam biasa
-                    // ------------------------------------------------
                     if (bx1 < bx2) {
                         bx1 -= beamOffset;
                         bx2 += beamOffset;
@@ -1682,10 +1621,10 @@ class MusicXMLPDFRenderer {
                 const t2 = thickness / 2;
                 
                 this.doc.setFillColor(...this.engraverColor);
-                this.doc.moveTo(bx1, by1 - t2);       // Kiri atas
-                this.doc.lineTo(bx2, by2 - t2);       // Kanan atas
-                this.doc.lineTo(bx2, by2 + t2);       // Kanan bawah
-                this.doc.lineTo(bx1, by1 + t2);       // Kiri bawah
+                this.doc.moveTo(bx1, by1 - t2);       
+                this.doc.lineTo(bx2, by2 - t2);       
+                this.doc.lineTo(bx2, by2 + t2);       
+                this.doc.lineTo(bx1, by1 + t2);       
                 this.doc.close();
                 this.doc.fill();
             });
@@ -1818,15 +1757,12 @@ class MusicXMLPDFRenderer {
     drawLedgerLines(x, y, diatonic, clefType) {
         let lineMin, lineMax;
         if (clefType === "F") {
-            // Bass: G2 (-10) .. A3 (-2)
             lineMin = -10;
             lineMax = -2;
         } else if (clefType === "C") {
-            // Alto: F3 (-4) .. G4 (4)
             lineMin = -4;
             lineMax = 4;
         } else {
-            // Treble: E4 (2) .. F5 (10)
             lineMin = 2;
             lineMax = 10;
         }
@@ -1953,7 +1889,7 @@ class MusicXMLPDFRenderer {
         if (clefType === "F") {
             return startY - (diatonic + 2) * ls;
         } else if (clefType === "C") {
-            return startY + (4 - diatonic) * ls;       // ✅ hapus * 2
+            return startY + (4 - diatonic) * ls;       
         } else {
             return startY + (10 - diatonic) * ls;
         }
@@ -1996,22 +1932,37 @@ class MusicXMLPDFRenderer {
         this.doc.text(text || "", x, y, { align: align, angle: rotation });
     }
 
-    // ============================================================
-    // SVG PATH PARSER → jsPDF
-    // ============================================================
     /**
-     * Converts an SVG elliptical arc to a sequence of cubic Bézier segments.
+     * Draws a chord label above a staff.
+     *
+     * @param {number} x Horizontal center coordinate for the label.
+     * @param {number} staffTopY Top y-coordinate of the staff.
+     * @param {string} label Chord label to render.
+     * @returns {void}
+     */
+    drawChordSymbol(x, staffTopY, label) {
+        if (!label) return;
+        const chordY = staffTopY - 16; 
+        
+        this.doc.setFont(this.FONT_SANS_SERIF, 'bold');
+        this.doc.setFontSize(10);
+        this.doc.setTextColor(...this.engraverColor);
+        this.doc.text(label, x, chordY, { align: 'center' });
+    }
+
+    /**
+     * Converts an SVG elliptical arc into cubic Bézier segments.
      *
      * @param {number} x1 Start x-coordinate.
      * @param {number} y1 Start y-coordinate.
-     * @param {number} rx X-radius of the ellipse.
-     * @param {number} ry Y-radius of the ellipse.
-     * @param {number} angle Rotation angle in degrees.
-     * @param {boolean|number} largeArcFlag Whether the large arc flag is set.
-     * @param {boolean|number} sweepFlag Whether the sweep flag is set.
+     * @param {number} rx Horizontal radius of the ellipse.
+     * @param {number} ry Vertical radius of the ellipse.
+     * @param {number} angle Ellipse rotation angle in degrees.
+     * @param {boolean|number} largeArcFlag Whether to use the large arc.
+     * @param {boolean|number} sweepFlag Whether to sweep in the positive-angle direction.
      * @param {number} x2 End x-coordinate.
      * @param {number} y2 End y-coordinate.
-     * @returns {Array<Array<number>>} Cubic-bezier control points for the arc.
+     * @returns {Array<Array<number>>} Cubic Bézier control points for the arc.
      */
     arcToCubicBezier(x1, y1, rx, ry, angle, largeArcFlag, sweepFlag, x2, y2) {
         if (rx === 0 || ry === 0) return [];
@@ -2269,9 +2220,6 @@ class MusicXMLPDFRenderer {
         this.doc.internal.write(pdfCmds + op);
     }
 
-    // ============================================================
-    // STATIC HELPERS
-    // ============================================================
     static NOTE_TYPE_VALUES = [
         { name: 'maxima', val: 8 }, { name: 'long', val: 4 }, { name: 'breve', val: 2 },
         { name: 'whole', val: 1 }, { name: 'half', val: 0.5 }, { name: 'quarter', val: 0.25 },
@@ -2382,10 +2330,10 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Menentukan apakah render ini hanya untuk 1 part.
+     * Determines whether rendering is limited to a single part.
      *
-     * @param {Array<Element>} parts Daftar node <part> dari XML.
-     * @returns {boolean}
+     * @param {Array<Element>} parts Part elements from the MusicXML document.
+     * @returns {boolean} True when only one part is selected or available.
      */
     isSinglePartRender(parts) {
         if (Array.isArray(this.selectedChannels) && this.selectedChannels.length === 1) return true;
@@ -2394,10 +2342,10 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Mengecek apakah sebuah measure benar-benar silent / hanya berisi rest.
+     * Checks whether a measure contains no notes or only rests.
      *
-     * @param {Element} mNode Node <measure>.
-     * @returns {boolean}
+     * @param {Element|null} mNode MusicXML measure element to inspect.
+     * @returns {boolean} True when the measure is silent.
      */
     isMeasureSilent(mNode) {
         if (!mNode) return true;
@@ -2409,12 +2357,11 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Membuat daftar measure yang sudah dikompres.
-     * Semua measure diam berurutan digabung menjadi satu blok multi-rest.
+     * Builds a render list that combines consecutive silent measures.
      *
-     * @param {Map<number, Element>} measureMap Map nomor measure -> node measure.
-     * @param {number} totalMeasures Jumlah measure asli.
-     * @returns {Array<Object>}
+     * @param {Map<number, Element>} measureMap Measure elements keyed by measure number.
+     * @param {number} totalMeasures Total number of measures to process.
+     * @returns {Array<Object>} Measure entries, including compressed-rest entries.
      */
     buildCompressedMeasureList(measureMap, totalMeasures) {
         const list = [];
@@ -2464,12 +2411,13 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Menggambar multi-measure rest.
+     * Draws a rest symbol spanning multiple consecutive measures.
      *
-     * @param {number} x X awal measure.
-     * @param {number} y Y atas staff.
-     * @param {number} width Lebar measure.
-     * @param {number} count Jumlah birama diam yang dikompres.
+     * @param {number} x Left x-coordinate of the measure region.
+     * @param {number} y Top y-coordinate of the staff.
+     * @param {number} width Width available for the rest symbol.
+     * @param {number} count Number of measures represented by the rest.
+     * @returns {void}
      */
     drawMultiMeasureRest(x, y, width, count) {
         const midY = y + 2 * this.lineSpacing;
@@ -2498,8 +2446,7 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Menambahkan nomor halaman "N of M" di sudut kanan bawah setiap halaman.
-     * Harus dipanggil setelah seluruh sistem selesai digambar.
+     * Draws page numbers on every page and restores the active page afterward.
      *
      * @returns {void}
      */
@@ -2509,7 +2456,6 @@ class MusicXMLPDFRenderer {
         const totalPages = this.doc.getNumberOfPages();
         if (totalPages < 1) return;
 
-        // Simpan halaman aktif saat ini
         const restorePage = this.doc.getCurrentPageInfo().pageNumber;
 
         const x = this.PAGE_WIDTH - this.MARGIN;
@@ -2518,7 +2464,6 @@ class MusicXMLPDFRenderer {
         for (let p = 1; p <= totalPages; p++) {
             this.doc.setPage(p);
 
-            // Bersihkan area kecil di belakang angka (anti tumpang-tindih)
             this.doc.setFillColor(255, 255, 255);
             this.doc.rect(x - 60, y - 10, 60, 14, 'F');
 
@@ -2528,56 +2473,46 @@ class MusicXMLPDFRenderer {
             this.doc.text(`${p} of ${totalPages}`, x, y, { align: 'right' });
         }
 
-        // Kembalikan ke halaman terakhir
         this.doc.setPage(restorePage);
     }
 
     /**
-     * Menentukan tipe not dan jumlah titik berdasarkan durasi, divisions, 
-     * dan time signature (beats & beatType).
-     * @param {number} duration - Durasi dalam divisions.
-     * @param {number} divisions - Divisions per quarter note.
-     * @param {number} beats - Numerator time signature (misal: 3 untuk 3/4).
-     * @param {number} beatType - Denominator time signature (misal: 4 untuk 3/4).
-     * @returns {{type: string, dots: number}} Objek berisi tipe not dan jumlah titik.
+     * Determines a note type and dot count for a duration in the given meter.
+     *
+     * @param {number} duration Duration value in ticks.
+     * @param {number} divisions Divisions per quarter note.
+     * @param {number} [beats=4] Number of beats in the measure.
+     * @param {number} [beatType=4] Beat unit value.
+     * @returns {{type: string, dots: number}} The closest note type and dot count.
      */
     static getNoteTypeAndDots(duration, divisions, beats = 4, beatType = 4) {
         if (divisions <= 0 || duration <= 0) return { type: '128th', dots: 0 };
         
-        // Hitung durasi dalam satuan quarter note
         const quarterNotes = duration / divisions;
-        
-        // Hitung nilai 1 ketukan dalam satuan quarter note
-        // (misal: di 4/4, 1 ketuk = 1 quarter note. Di 6/8, 1 ketuk = 1 eighth note = 0.5 quarter note)
         const beatValueInQuarterNotes = 4 / beatType;
-        
-        // Total ketukan dari not ini
         const totalBeats = quarterNotes / beatValueInQuarterNotes;
         
         let type = 'quarter';
         let dots = 0;
         
         if (beatType === 4) {
-            // Logika untuk time signature X/4 (seperti 2/4, 3/4, 4/4)
             if (totalBeats >= 4) { type = 'whole'; }
-            else if (totalBeats >= 3) { type = 'half'; dots = 1; } // Dotted half
+            else if (totalBeats >= 3) { type = 'half'; dots = 1; }
             else if (totalBeats >= 2) { type = 'half'; }
-            else if (totalBeats >= 1.5) { type = 'quarter'; dots = 1; } // Dotted quarter
+            else if (totalBeats >= 1.5) { type = 'quarter'; dots = 1; }
             else if (totalBeats >= 1) { type = 'quarter'; }
-            else if (totalBeats >= 0.75) { type = 'eighth'; dots = 1; } // Dotted eighth
+            else if (totalBeats >= 0.75) { type = 'eighth'; dots = 1; }
             else if (totalBeats >= 0.5) { type = 'eighth'; }
             else { type = '16th'; }
         } else if (beatType === 8) {
-            // Logika untuk time signature X/8 (seperti 3/8, 6/8, 9/8, 12/8)
-            if (totalBeats >= 6) { type = 'half'; dots = 1; } // Dotted half
+            if (totalBeats >= 6) { type = 'half'; dots = 1; }
             else if (totalBeats >= 4) { type = 'half'; }
-            else if (totalBeats >= 3) { type = 'quarter'; dots = 1; } // Dotted quarter
+            else if (totalBeats >= 3) { type = 'quarter'; dots = 1; }
             else if (totalBeats >= 2) { type = 'quarter'; }
-            else if (totalBeats >= 1.5) { type = 'eighth'; dots = 1; } // Dotted eighth
+            else if (totalBeats >= 1.5) { type = 'eighth'; dots = 1; }
             else if (totalBeats >= 1) { type = 'eighth'; }
             else { type = '16th'; }
         } else {
-            // Fallback matematis untuk time signature lainnya (misal 2/2)
             const value = duration / (4 * divisions);
             if (value >= 1) { type = 'whole'; }
             else if (value >= 0.75) { type = 'half'; dots = 1; }
@@ -2592,30 +2527,26 @@ class MusicXMLPDFRenderer {
     }
 
     /**
-     * Menghitung durasi (dalam divisions) berdasarkan tipe not dan jumlah titik.
-     * Digunakan untuk memastikan layout tetap benar jika terjadi ketidakcocokan
-     * antara tag <duration> dan <type> di dalam file MusicXML.
-     * @param {string} typeName - Nama tipe not (misal: 'half', 'quarter').
-     * @param {number} dots - Jumlah titik (0, 1, dst).
-     * @param {number} divisions - Divisions per quarter note.
-     * @returns {number} Durasi dalam divisions.
+     * Converts a note type and dot count into a duration in ticks.
+     *
+     * @param {string} typeName Note type name.
+     * @param {number} dots Number of augmentation dots.
+     * @param {number} divisions Divisions per quarter note.
+     * @returns {number} Duration in ticks, or zero for an unknown note type.
      */
     static getDurationFromType(typeName, dots, divisions) {
         const type = MusicXMLPDFRenderer.NOTE_TYPE_VALUES.find(t => t.name === typeName);
         if (!type) return 0;
         
-        // Nilai dasar dalam ketukan (quarter notes)
         const baseValue = type.val; 
         let totalValue = baseValue;
         
-        // Tambahkan nilai titik (setiap titik menambah setengah dari nilai sebelumnya)
         let dotValue = baseValue * 0.5;
         for (let i = 0; i < dots; i++) {
             totalValue += dotValue;
             dotValue *= 0.5;
         }
         
-        // Konversi kembali ke divisions (1 whole note = 4 * divisions)
         return Math.round(totalValue * 4 * divisions);
     }
 }
