@@ -378,8 +378,8 @@ class MidiParser {
             }
         });
 
-        // Always normalize globally by default if options.normalize is not explicitly false
-        if (options.normalize !== false && globalFirstTick !== Infinity && globalFirstTick > 0) {
+        const shouldNormalize = options && options.normalize === true;;
+        if (shouldNormalize === true && globalFirstTick !== Infinity && globalFirstTick > 0) {
             tracks.forEach(t => {
                 t.notes.forEach(n => n.ticks -= globalFirstTick);
                 t.lyrics.forEach(l => l.ticks -= globalFirstTick);
@@ -513,7 +513,23 @@ class MidiParser {
              * @returns {number} return.denominator - Time signature denominator at this tick.
              * @returns {number} return.ticksPerBeat - Number of ticks per beat under current signature.
              * @returns {number} return.ticksPerMeasure - Number of ticks per measure under current signature.
+             *
+             * @example
+             * // Assuming PPQ = 480 and 4/4 time signature
+             * tickToPosition(960);
+             * // => {
+             * //   tick: 960,
+             * //   measure: 1,
+             * //   beat: 3,
+             * //   tickInBeat: 0,
+             * //   tickInMeasure: 960,
+             * //   numerator: 4,
+             * //   denominator: 4,
+             * //   ticksPerBeat: 480,
+             * //   ticksPerMeasure: 1920
+             * // }
              */
+
             tickToPosition(targetTick) {
                 targetTick = Math.max(0, Math.round(targetTick));
 
