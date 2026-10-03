@@ -143,7 +143,7 @@ class MusicXMLSVGRenderer {
         //
         // Set ke null (default) untuk memakai aturan bawaan per clef.
         // Set ke angka lebih kecil (mis. 2 / E4) untuk lebih agresif.
-        this.stemDirectionThreshold = options.stemDirectionThreshold ?? 5;
+        this.stemDirectionThreshold = options.stemDirectionThreshold ?? 7;
 
         // === Auto-clef ===
         // Pilih clef (G/F/C) secara otomatis per staff berdasarkan
