@@ -1907,29 +1907,51 @@ class MusicXMLPDFRenderer {
                 this.drawSVGPath(qPath, qTx, qTy, qScale, qScale, true);
                 break;
             }
-            case 'eighth': {
-                const ePath = "M 1.098 0 C 0.578 0.098 0.18 0.457 0 0.953 C -0.039 1.113 -0.039 1.152 -0.039 1.371 C -0.039 1.672 -0.02 1.832 0.121 2.07 C 0.32 2.469 0.738 2.789 1.215 2.906 C 1.715 3.047 3 3.153 4 2.153 L 4.941 0.598 C 4.844 0.477 4.645 0.438 4.523 0.535 C 4.484 0.574 4.422 0.656 4.383 0.715 C 4.203 1.016 3.746 1.551 3.508 1.75 C 3.289 1.93 3.168 1.949 2.969 1.871 C 2.789 1.773 2.73 1.672 2.609 1.133 C 2.492 0.598 2.352 0.355 2.051 0.156 C 1.773 -0.023 1.414 -0.082 1.098 0 z";
-                const eTx = x + 1.5;
-                const eTy = y + 11;
-                const eScale = 2.2;
-                this.doc.setFillColor(...color);
-                this.doc.setDrawColor(...color);
-                this.doc.setLineWidth(1.5);
-                this.doc.line(x + 12, y + 10, x + 8, y + 35);
-                this.drawSVGPath(ePath, eTx, eTy, eScale, eScale, true);
-                break;
-            }
+            case 'eighth':
             case '16th':
             case '32nd': {
-                const hPath = "M 1.098 0 C 0.578 0.098 0.18 0.457 0 0.953 C -0.039 1.113 -0.039 1.152 -0.039 1.371 C -0.039 1.672 -0.02 1.832 0.121 2.07 C 0.32 2.469 0.738 2.789 1.215 2.906 C 1.715 3.047 3 3.153 4 2.153 L 4.941 0.598 C 4.844 0.477 4.645 0.438 4.523 0.535 C 4.484 0.574 4.422 0.656 4.383 0.715 C 4.203 1.016 3.746 1.551 3.508 1.75 C 3.289 1.93 3.168 1.949 2.969 1.871 C 2.789 1.773 2.73 1.672 2.609 1.133 C 2.492 0.598 2.352 0.355 2.051 0.156 C 1.773 -0.023 1.414 -0.082 1.098 0 z";
-                const hScale = 2.2;
-                this.doc.setFillColor(...color);
+                const hookPath = "M 1.098 0 C 0.578 0.098 0.18 0.457 0 0.953 C -0.039 1.113 -0.039 1.152 -0.039 1.371 C -0.039 1.672 -0.02 1.832 0.121 2.07 C 0.32 2.469 0.738 2.789 1.215 2.906 C 1.715 3.047 3 3.153 4 2.153 L 4.941 0.598 C 4.844 0.477 4.645 0.438 4.523 0.535 C 4.484 0.574 4.422 0.656 4.383 0.715 C 4.203 1.016 3.746 1.551 3.508 1.75 C 3.289 1.93 3.168 1.949 2.969 1.871 C 2.789 1.773 2.73 1.672 2.609 1.133 C 2.492 0.598 2.352 0.355 2.051 0.156 C 1.773 -0.023 1.414 -0.082 1.098 0 z";
+
+                // ==== Parameter ukuran flag ====
+                const hookScale = 1.3;
+                const HOOK_NATIVE_W = 4.941;
+                const HOOK_NATIVE_H = 2.906;
+                const hookW = HOOK_NATIVE_W * hookScale;
+                const hookH = HOOK_NATIVE_H * hookScale;
+                const flagGap = hookH + 1.2;
+                // flagShift TIDAK LAGI konstanta — dihitung dari gradient stem
+                // ================================
+
+                // Posisi stem
+                const xPos     = x - 8;
+                const stemTopX = xPos + 15;
+                const stemTopY = y + 6.75;
+                const stemBotX = xPos + 10;
+                const stemBotY = y + 28;
+
+                // ==== Hitung gradient stem ====
+                const stemDx = stemBotX - stemTopX;   // -5
+                const stemDy = stemBotY - stemTopY;   // 21.25
+                const stemSlope = stemDy !== 0 ? (stemDx / stemDy) : 0;   // ≈ -0.2353
+                // ================================
+
+                // Gambar stem
                 this.doc.setDrawColor(...color);
-                this.doc.setLineWidth(1.5);
-                this.doc.line(x + 12, y + 10, x + 8, y + 35);
-                this.drawSVGPath(hPath, x + 1.5, y + 11, hScale, hScale, true);
+                this.doc.setLineWidth(1.1);
+                this.doc.line(stemTopX, stemTopY, stemBotX, stemBotY);
+
+                // Gambar flag pertama
+                this.doc.setFillColor(...color);
+                const flag1X = stemTopX - hookW;
+                const flag1Y = stemTopY;
+                this.drawSVGPath(hookPath, flag1X, flag1Y, hookScale, hookScale, true);
+
+                // Flag kedua untuk 16th / 32nd
                 if (type === '16th' || type === '32nd') {
-                    this.drawSVGPath(hPath, x - 0.5, y + 19, hScale, hScale, true);
+                    // Pergeseran horizontal mengikuti gradient stem
+                    const flag2X = flag1X + stemSlope * flagGap;
+                    const flag2Y = flag1Y + flagGap;
+                    this.drawSVGPath(hookPath, flag2X, flag2Y, hookScale, hookScale, true);
                 }
                 break;
             }

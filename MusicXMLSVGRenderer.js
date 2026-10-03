@@ -3270,43 +3270,74 @@ class MusicXMLSVGRenderer {
 
             case 'eighth':
             case '16th':
-            case '32nd':
+            case '32nd': {
+                const xPos = x - 8 * scale;
                 const restGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
                 restGroup.classList.add("rest-symbol");
 
                 const hookPath = "M 1.098 0 C 0.578 0.098 0.18 0.457 0 0.953 C -0.039 1.113 -0.039 1.152 -0.039 1.371 C -0.039 1.672 -0.02 1.832 0.121 2.07 C 0.32 2.469 0.738 2.789 1.215 2.906 C 1.715 3.047 3 3.153 4 2.153 L 4.941 0.598 C 4.844 0.477 4.645 0.438 4.523 0.535 C 4.484 0.574 4.422 0.656 4.383 0.715 C 4.203 1.016 3.746 1.551 3.508 1.75 C 3.289 1.93 3.168 1.949 2.969 1.871 C 2.789 1.773 2.73 1.672 2.609 1.133 C 2.492 0.598 2.352 0.355 2.051 0.156 C 1.773 -0.023 1.414 -0.082 1.098 0 z";
-                const hookScale = 2.75 * scale;
 
-                const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-                line.setAttribute("x1", x + 15 * scale);
-                line.setAttribute("y1", y + 10 * scale);
-                line.setAttribute("x2", x + 10 * scale);
-                line.setAttribute("y2", y + 40.5 * scale);
-                line.setAttribute("stroke", color);
-                line.setAttribute("stroke-width", `${1.1 * scale}`);
-                line.classList.add("rest-line");
-                restGroup.appendChild(line);
+                // ==== Parameter ukuran flag ====
+                const hookScale = 1.8 * scale;
+                const HOOK_NATIVE_W = 4.941;
+                const HOOK_NATIVE_H = 2.906;
+                const hookW = HOOK_NATIVE_W * hookScale;
+                const hookH = HOOK_NATIVE_H * hookScale;
+                // Jarak antar flag untuk 16th/32nd
+                const flagGap = hookH + 1.2 * scale;
+                // flagShift TIDAK LAGI konstanta — dihitung dari gradient stem
+                // =================================
 
+                // Posisi puncak & ujung bawah stem (stem miring ke kiri-bawah)
+                const stemTopX = xPos + 15 * scale;
+                const stemTopY = y + 10 * scale;
+                const stemBotX = xPos + 10 * scale;
+                const stemBotY = y + 40.5 * scale;
+
+                // ==== Hitung gradient stem ====
+                const stemDx = stemBotX - stemTopX;    // -5 * scale
+                const stemDy = stemBotY - stemTopY;    // 30.5 * scale
+                const stemSlope = stemDy !== 0 ? (stemDx / stemDy) : 0;   // ≈ -0.1639
+                // ===============================
+
+                const stem = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                stem.setAttribute("x1", stemTopX);
+                stem.setAttribute("y1", stemTopY);
+                stem.setAttribute("x2", stemBotX);
+                stem.setAttribute("y2", stemBotY);
+                stem.setAttribute("stroke", color);
+                stem.setAttribute("stroke-width", `${1.1 * scale}`);
+                stem.classList.add("rest-line");
+                restGroup.appendChild(stem);
+
+                // Flag 1 — tepi kanan menempel ke puncak stem
+                const flag1X = stemTopX - hookW;
+                const flag1Y = stemTopY;
                 const pH1 = document.createElementNS("http://www.w3.org/2000/svg", "path");
                 pH1.setAttribute("d", hookPath);
-                pH1.setAttribute("transform", `translate(${x + 1.5 * scale}, ${y + 11 * scale}) scale(${hookScale})`);
+                pH1.setAttribute("transform", `translate(${flag1X}, ${flag1Y}) scale(${hookScale})`);
                 pH1.setAttribute("fill", color);
                 pH1.classList.add("rest-symbol");
                 restGroup.appendChild(pH1);
 
                 if (type === '16th' || type === '32nd') {
+                    // Flag 2 — turun satu flagGap, geser mengikuti gradient stem
+                    const flag2X = flag1X + stemSlope * flagGap;
+                    const flag2Y = flag1Y + flagGap;
                     const pH2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
                     pH2.setAttribute("d", hookPath);
-                    pH2.setAttribute("transform", `translate(${x - 0.5 * scale}, ${y + 21 * scale}) scale(${hookScale})`);
+                    pH2.setAttribute("transform", `translate(${flag2X}, ${flag2Y}) scale(${hookScale})`);
                     pH2.setAttribute("fill", color);
                     pH2.classList.add("rest-symbol");
                     restGroup.appendChild(pH2);
                 }
+
                 this.svg.appendChild(restGroup);
-                restInfo.x = x + 15 * scale;
+                restInfo.xPos = stemTopX;
                 restInfo.y = y + 2 * this.lineSpacing;
                 restInfo.width = 10 * scale;
                 break;
+            }
         }
         return restInfo;
     }
