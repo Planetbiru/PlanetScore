@@ -640,11 +640,17 @@ class MusicXMLPDFRenderer {
                             }
                         }
 
+                        const octaveNode = originalNoteNode.querySelector("pitch octave, unpitched display-octave");
+                        const octaveText = octaveNode ? octaveNode.textContent : null;
+                        const octaveVal = (octaveText == null || octaveText === '')
+                            ? 4
+                            : (Number.isFinite(parseInt(octaveText, 10)) ? parseInt(octaveText, 10) : 4);
+
                         const noteData = {
                             isRest: isRest,
                             staff: s,
                             step: originalNoteNode.querySelector("pitch step, unpitched display-step")?.textContent || "C",
-                            octave: parseInt(originalNoteNode.querySelector("pitch octave, unpitched display-octave")?.textContent || "4", 10),
+                            octave: octaveVal,
                             alter: parseInt(originalNoteNode.querySelector("pitch alter")?.textContent || "0", 10),
                             accidental: originalNoteNode.querySelector("accidental")?.textContent,
                             type: finalType,
