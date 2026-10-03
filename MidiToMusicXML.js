@@ -1052,7 +1052,7 @@ class MidiToMusicXML {
         xml += `    <creator type="composer">${this.escapeXML(opts.creator)}</creator>\n`;
         xml += `    <encoding>\n`;
         xml += `      <encoding-date>${new Date().toISOString().split('T')[0]}</encoding-date>\n`;
-        xml += `      <software>Planetbiru MusicXML JS</software>\n`;
+        xml += `      <software>PlanetScore</software>\n`;
         xml += `    </encoding>\n`;
         xml += `  </identification>\n`;
         xml += `  <part-list>\n`;

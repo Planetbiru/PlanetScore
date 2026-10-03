@@ -55,7 +55,7 @@ class MusicXMLPDFRenderer {
         this.subtitleColor = [100, 116, 139];
 
         this.stepOffsets = { 'C': 0, 'D': 1, 'E': 2, 'F': 3, 'G': 4, 'A': 5, 'B': 6 };
-        this.stemDirectionThreshold = options.stemDirectionThreshold ?? 5;
+        this.stemDirectionThreshold = options.stemDirectionThreshold ?? 7;
 
         this.doc.setFont('helvetica', 'normal');
         this.FONT_SANS_SERIF = 'helvetica';
