@@ -297,11 +297,15 @@ class MusicXMLPDFRenderer {
 
             if (isSystemStart) {
                 if (measureIdx > 0) {
-                    if (currentY + this.rowSpacing > this.PAGE_HEIGHT - this.marginBottom) {
+                    const nextSystemTop    = currentY + this.rowSpacing;
+                    // Posisi bawah sistem tersebut (yang sebelumnya tidak dihitung)
+                    const nextSystemBottom = nextSystemTop + calculatedStaffSystemHeight;
+
+                    if (nextSystemBottom > this.PAGE_HEIGHT - this.marginBottom) {
                         this.doc.addPage();
                         currentY = this.marginTopOtherPages;
                     } else {
-                        currentY += this.rowSpacing;
+                        currentY = nextSystemTop;
                     }
                 }
                 currentX = leftMargin;
