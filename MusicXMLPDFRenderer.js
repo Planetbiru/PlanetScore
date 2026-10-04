@@ -1398,7 +1398,16 @@ class MusicXMLPDFRenderer {
         const highestNote = calculatedNotes[calculatedNotes.length - 1];
 
         const avgDiatonic = calculatedNotes.reduce((sum, n) => sum + n.diatonic, 0) / calculatedNotes.length;
-        const stemDown = avgDiatonic >= this.stemDirectionThreshold;
+
+        // Garis tengah staff berbeda per clef:
+        //   Treble (G): B4 → diatonic 6
+        //   Alto   (C): C4 → diatonic 0
+        //   Bass   (F): D3 → diatonic -5
+        const middleLineByClef = { 'G': 6, 'C': 0, 'F': -5 };
+        const middleLine = middleLineByClef[clefType] ?? 6;
+
+        // Note pada atau di atas garis tengah → stem ke bawah.
+        const stemDown = avgDiatonic >= middleLine;
 
         calculatedNotes.forEach(note => {
             this.drawLedgerLines(x, y, note.diatonic, clefType);

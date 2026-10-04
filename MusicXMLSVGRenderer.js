@@ -143,7 +143,10 @@ class MusicXMLSVGRenderer {
         //
         // Set ke null (default) untuk memakai aturan bawaan per clef.
         // Set ke angka lebih kecil (mis. 2 / E4) untuk lebih agresif.
-        this.stemDirectionThreshold = options.stemDirectionThreshold ?? 7;
+        // null → pakai default per clef di drawNoteColumn()
+        this.stemDirectionThreshold = (options.stemDirectionThreshold === undefined)
+            ? null
+            : options.stemDirectionThreshold;
 
         // === Auto-clef ===
         // Pilih clef (G/F/C) secara otomatis per staff berdasarkan
@@ -2506,14 +2509,12 @@ class MusicXMLSVGRenderer {
 
         const avgDiatonic = calculatedNotes.reduce((sum, n) => sum + n.diatonic, 0) / calculatedNotes.length;
 
-        let defaultThreshold;
-        if (clefType === "F") {
-            defaultThreshold = -7; 
-        } else if (clefType === "C") {
-            defaultThreshold = 0;  
-        } else {
-            defaultThreshold = 7;  
-        }
+        // Garis tengah staff per clef (aturan notasi standar):
+        //   Treble (G) → B4 → diatonic 6
+        //   Alto   (C) → C4 → diatonic 0
+        //   Bass   (F) → D3 → diatonic -5
+        const middleLineByClef = { 'G': 6, 'C': 0, 'F': -5 };
+        const defaultThreshold = middleLineByClef[clefType] ?? 6;
 
         const threshold = (this.stemDirectionThreshold !== null && this.stemDirectionThreshold !== undefined)
             ? this.stemDirectionThreshold
