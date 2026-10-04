@@ -259,40 +259,65 @@ class MusicXMLPDFRenderer {
             const displayMeasureNumber = renderMeasure ? renderMeasure.number : measureIdx + 1;
 
             partStaffMap.forEach(pInfo => {
-                const mNode = renderMeasure
-                    ? renderMeasure.node
-                    : partMeasureMap[pInfo.partIndex].get(measureIdx + 1);
-
+                // Untuk measure yang dikompres, kita tetap perlu membaca <attributes>
+                // dari measure pertama di blok tersebut, supaya divisions / key / time /
+                // clef di-inherit dengan benar oleh measure-measure berikutnya.
+                let mNode;
+                if (renderMeasure) {
+                    if (renderMeasure.node) {
+                        mNode = renderMeasure.node;
+                    } else if (renderMeasure.compressedCount > 0) {
+                        mNode = partMeasureMap[pInfo.partIndex].get(renderMeasure.originalStart);
+                    }
+                } else {
+                    mNode = partMeasureMap[pInfo.partIndex].get(measureIdx + 1);
+                }
                 if (!mNode) return;
+
                 const attrNode = mNode.querySelector("attributes");
-                if (attrNode) {
-                    const divVal = parseInt(attrNode.querySelector("divisions")?.textContent || "4");
-                    const fifthsVal = parseInt(attrNode.querySelector("key fifths")?.textContent || "0");
-                    const timeNode = attrNode.querySelector("time");
-                    for (let s = 0; s < pInfo.numStaves; s++) {
-                        const staffId = pInfo.startStaffId + s;
-                        if (staffState[staffId]) {
-                            staffState[staffId].divisions = divVal;
-                            staffState[staffId].fifths = fifthsVal;
-                            if (timeNode) {
-                                staffState[staffId].beats = parseInt(timeNode.querySelector("beats")?.textContent || "4");
-                                staffState[staffId].beatType = parseInt(timeNode.querySelector("beat-type")?.textContent || "4");
-                                staffState[staffId].timeSymbol = timeNode.getAttribute("symbol");
+                if (!attrNode) return;
+
+                // Divisions: hanya update kalau elemen <divisions> benar-benar ada.
+                // Kode sebelumnya memakai fallback "4" yang menimpa divisions yang
+                // sudah di-inherit dari measure sebelumnya, sehingga 32nd note/rest
+                // (yang butuh divisions > 4) salah dirender.
+                const divisionsEl = attrNode.querySelector("divisions");
+                if (divisionsEl) {
+                    const divVal = parseInt(divisionsEl.textContent, 10);
+                    if (Number.isFinite(divVal) && divVal > 0) {
+                        for (let s = 0; s < pInfo.numStaves; s++) {
+                            const staffId = pInfo.startStaffId + s;
+                            if (staffState[staffId]) {
+                                staffState[staffId].divisions = divVal;
                             }
                         }
                     }
-                    attrNode.querySelectorAll("clef").forEach(clefNode => {
-                        const clefNum = parseInt(clefNode.getAttribute("number") || "1");
-                        const sign = clefNode.querySelector("sign")?.textContent;
-                        const staffId = pInfo.startStaffId + (clefNum - 1);
-                        if (staffState[staffId] && sign) {
-                            if (measureIdx === 0 && staffState[staffId]._clefAutoApplied) {
-                                return;
-                            }
-                            staffState[staffId].clef = sign;
-                        }
-                    });
                 }
+
+                const fifthsVal = parseInt(attrNode.querySelector("key fifths")?.textContent || "0");
+                const timeNode = attrNode.querySelector("time");
+                for (let s = 0; s < pInfo.numStaves; s++) {
+                    const staffId = pInfo.startStaffId + s;
+                    if (staffState[staffId]) {
+                        staffState[staffId].fifths = fifthsVal;
+                        if (timeNode) {
+                            staffState[staffId].beats = parseInt(timeNode.querySelector("beats")?.textContent || "4");
+                            staffState[staffId].beatType = parseInt(timeNode.querySelector("beat-type")?.textContent || "4");
+                            staffState[staffId].timeSymbol = timeNode.getAttribute("symbol");
+                        }
+                    }
+                }
+                attrNode.querySelectorAll("clef").forEach(clefNode => {
+                    const clefNum = parseInt(clefNode.getAttribute("number") || "1");
+                    const sign = clefNode.querySelector("sign")?.textContent;
+                    const staffId = pInfo.startStaffId + (clefNum - 1);
+                    if (staffState[staffId] && sign) {
+                        if (measureIdx === 0 && staffState[staffId]._clefAutoApplied) {
+                            return;
+                        }
+                        staffState[staffId].clef = sign;
+                    }
+                });
             });
 
             if (isSystemStart) {
@@ -370,7 +395,13 @@ class MusicXMLPDFRenderer {
                     braceYOffset += partHeight + (index < partStaffMap.length - 1 ? this.partSpacing * scale : 0);
                 });
 
-                this.drawText(systemStartX, currentY - 14, `${displayMeasureNumber}`, 10, this.subtitleColor, "left", true, this.FONT_SANS_SERIF);
+                let systemLabel;
+                if (renderMeasure && renderMeasure.compressedCount > 1) {
+                    systemLabel = `${renderMeasure.originalStart}–${renderMeasure.originalEnd}`;
+                } else {
+                    systemLabel = `${displayMeasureNumber}`;
+                }
+                this.drawText(systemStartX, currentY - 14, systemLabel, 10, this.subtitleColor, "left", true, this.FONT_SANS_SERIF);
                 
                 const realMeasureNumber = renderMeasure ? renderMeasure.number : measureIdx + 1;
                 const realMeasureNode = partMeasureMap[0].get(realMeasureNumber);
@@ -2538,7 +2569,12 @@ class MusicXMLPDFRenderer {
      */
     drawMultiMeasureRest(x, y, width, count) {
         const midY = y + 2 * this.lineSpacing;
-        const barWidth = Math.min(width * 0.5, 120 * this.GLOBAL_SCALE);
+
+        // Bar multi-rest menempati sebagian besar kolomnya (proporsi terhadap lebar kolom).
+        // Batas atas menjaga bar tidak terlalu lebar di kolom yang sangat lebar.
+        const MAX_BAR_WIDTH = 200 * this.GLOBAL_SCALE;
+        const barWidth = Math.min(width * 0.65, MAX_BAR_WIDTH);
+
         const startX = x + (width - barWidth) / 2;
         const endX = startX + barWidth;
 
