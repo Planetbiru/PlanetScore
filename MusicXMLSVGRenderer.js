@@ -1927,14 +1927,6 @@ class MusicXMLSVGRenderer {
             staffState[s].clef = chosen;
             staffState[s]._clefAutoApplied = true;
 
-            if (this.debugAutoClef) {
-                console.log(
-                    `[AutoClef] staff ${s}: ` +
-                    `avgDiatonic=${stat.avgDiatonic.toFixed(2)}, ` +
-                    `min=${stat.minDiatonic}, max=${stat.maxDiatonic}, ` +
-                    `original=${originalClef} → chosen=${chosen}`
-                );
-            }
         }
     }
 
@@ -3271,33 +3263,40 @@ class MusicXMLSVGRenderer {
             case 'eighth':
             case '16th':
             case '32nd': {
-                const xPos = x - 8 * scale;
+                // Pusatkan rest pada posisi x
+                const xPos = x; 
                 const restGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
                 restGroup.classList.add("rest-symbol");
 
                 const hookPath = "M 1.098 0 C 0.578 0.098 0.18 0.457 0 0.953 C -0.039 1.113 -0.039 1.152 -0.039 1.371 C -0.039 1.672 -0.02 1.832 0.121 2.07 C 0.32 2.469 0.738 2.789 1.215 2.906 C 1.715 3.047 3 3.153 4 2.153 L 4.941 0.598 C 4.844 0.477 4.645 0.438 4.523 0.535 C 4.484 0.574 4.422 0.656 4.383 0.715 C 4.203 1.016 3.746 1.551 3.508 1.75 C 3.289 1.93 3.168 1.949 2.969 1.871 C 2.789 1.773 2.73 1.672 2.609 1.133 C 2.492 0.598 2.352 0.355 2.051 0.156 C 1.773 -0.023 1.414 -0.082 1.098 0 z";
 
-                // ==== Parameter ukuran flag ====
-                const hookScale = 1.8 * scale;
+                // ==== Parameter ukuran flag (Diperbesar agar sesuai standar) ====
+                const hookScale = 2.2 * scale; // Dinaikkan dari 1.8 agar lebih proporsional
                 const HOOK_NATIVE_W = 4.941;
                 const HOOK_NATIVE_H = 2.906;
                 const hookW = HOOK_NATIVE_W * hookScale;
                 const hookH = HOOK_NATIVE_H * hookScale;
-                // Jarak antar flag untuk 16th/32nd
-                const flagGap = hookH + 1.2 * scale;
-                // flagShift TIDAK LAGI konstanta — dihitung dari gradient stem
+                
+                // Jarak antar flag disesuaikan sedikit lebih rapat
+                let flagGap = hookH * 1.5; 
                 // =================================
 
-                // Posisi puncak & ujung bawah stem (stem miring ke kiri-bawah)
-                const stemTopX = xPos + 15 * scale;
-                const stemTopY = y + 10 * scale;
-                const stemBotX = xPos + 10 * scale;
-                const stemBotY = y + 40.5 * scale;
+                let stemTopX = xPos + 4 * scale; 
+                let stemTopY = y + 12 * scale;   
+                let stemBotX = xPos - 1 * scale;             
+                let stemBotY = y + 35 * scale;   
+
+                if (type === '32nd') {
+                    const slope = (stemBotX - stemTopX) / (stemBotY - stemTopY);
+                    stemTopY = y + 3 * scale; 
+                    // Pertahankan gradien
+                    stemBotX = stemTopX + (stemBotY - stemTopY) * slope;
+                }
 
                 // ==== Hitung gradient stem ====
-                const stemDx = stemBotX - stemTopX;    // -5 * scale
-                const stemDy = stemBotY - stemTopY;    // 30.5 * scale
-                const stemSlope = stemDy !== 0 ? (stemDx / stemDy) : 0;   // ≈ -0.1639
+                const stemDx = stemBotX - stemTopX;    
+                const stemDy = stemBotY - stemTopY;    
+                const stemSlope = stemDy !== 0 ? (stemDx / stemDy) : 0;   
                 // ===============================
 
                 const stem = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -3306,13 +3305,13 @@ class MusicXMLSVGRenderer {
                 stem.setAttribute("x2", stemBotX);
                 stem.setAttribute("y2", stemBotY);
                 stem.setAttribute("stroke", color);
-                stem.setAttribute("stroke-width", `${1.1 * scale}`);
+                stem.setAttribute("stroke-width", `${1.2 * scale}`); // Sedikit lebih tebal
                 stem.classList.add("rest-line");
                 restGroup.appendChild(stem);
 
                 // Flag 1 — tepi kanan menempel ke puncak stem
                 const flag1X = stemTopX - hookW;
-                const flag1Y = stemTopY;
+                const flag1Y = stemTopY - hookH * 0.2; // Sedikit disesuaikan agar pangkal hook pas di ujung stem
                 const pH1 = document.createElementNS("http://www.w3.org/2000/svg", "path");
                 pH1.setAttribute("d", hookPath);
                 pH1.setAttribute("transform", `translate(${flag1X}, ${flag1Y}) scale(${hookScale})`);
@@ -3320,8 +3319,8 @@ class MusicXMLSVGRenderer {
                 pH1.classList.add("rest-symbol");
                 restGroup.appendChild(pH1);
 
+                // Flag 2 (untuk 16th dan 32nd)
                 if (type === '16th' || type === '32nd') {
-                    // Flag 2 — turun satu flagGap, geser mengikuti gradient stem
                     const flag2X = flag1X + stemSlope * flagGap;
                     const flag2Y = flag1Y + flagGap;
                     const pH2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -3332,10 +3331,24 @@ class MusicXMLSVGRenderer {
                     restGroup.appendChild(pH2);
                 }
 
+                // Flag 3 (Khusus untuk 32nd - SEBELUMNYA HILANG)
+                if (type === '32nd') {
+                    const flag3X = flag1X + stemSlope * (flagGap * 2);
+                    const flag3Y = flag1Y + (flagGap * 2);
+                    const pH3 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                    pH3.setAttribute("d", hookPath);
+                    pH3.setAttribute("transform", `translate(${flag3X}, ${flag3Y}) scale(${hookScale})`);
+                    pH3.setAttribute("fill", color);
+                    pH3.classList.add("rest-symbol");
+                    restGroup.appendChild(pH3);
+                }
+
                 this.svg.appendChild(restGroup);
+                
+                // Update restInfo agar sesuai dengan posisi baru
                 restInfo.xPos = stemTopX;
-                restInfo.y = y + 2 * this.lineSpacing;
-                restInfo.width = 10 * scale;
+                restInfo.y = y + 2 * this.lineSpacing; // Tetap di tengah staff
+                restInfo.width = 10 * scale; 
                 break;
             }
         }
@@ -3745,32 +3758,32 @@ class MusicXMLSVGRenderer {
     }
 
     /**
-     * Menentukan tipe not dan jumlah titik berdasarkan durasi, divisions, 
-     * dan time signature (beats & beatType).
-     * @param {number} duration - Durasi dalam divisions.
+     * Determines the note type and number of dots based on duration, divisions,
+     * and time signature (beats & beatType).
+     * @param {number} duration - Duration in divisions.
      * @param {number} divisions - Divisions per quarter note.
-     * @param {number} beats - Numerator time signature (misal: 3 untuk 3/4).
-     * @param {number} beatType - Denominator time signature (misal: 4 untuk 3/4).
-     * @returns {{type: string, dots: number}} Objek berisi tipe not dan jumlah titik.
+     * @param {number} beats - Numerator of the time signature (e.g., 3 for 3/4).
+     * @param {number} beatType - Denominator of the time signature (e.g., 4 for 3/4).
+     * @returns {{type: string, dots: number}} Object containing note type and number of dots.
      */
     static getNoteTypeAndDots(duration, divisions, beats = 4, beatType = 4) {
         if (divisions <= 0 || duration <= 0) return { type: '128th', dots: 0 };
         
-        // Hitung durasi dalam satuan quarter note
+        // Calculate duration in quarter notes
         const quarterNotes = duration / divisions;
         
-        // Hitung nilai 1 ketukan dalam satuan quarter note
-        // (misal: di 4/4, 1 ketuk = 1 quarter note. Di 6/8, 1 ketuk = 1 eighth note = 0.5 quarter note)
+        // Calculate the value of one beat in quarter notes
+        // (e.g., in 4/4, 1 beat = 1 quarter note. In 6/8, 1 beat = 1 eighth note = 0.5 quarter note)
         const beatValueInQuarterNotes = 4 / beatType;
         
-        // Total ketukan dari not ini
+        // Total beats represented by this note
         const totalBeats = quarterNotes / beatValueInQuarterNotes;
         
         let type = 'quarter';
         let dots = 0;
         
         if (beatType === 4) {
-            // Logika untuk time signature X/4 (seperti 2/4, 3/4, 4/4)
+            // Logic for time signatures X/4 (such as 2/4, 3/4, 4/4)
             if (totalBeats >= 4) { type = 'whole'; }
             else if (totalBeats >= 3) { type = 'half'; dots = 1; } // Dotted half
             else if (totalBeats >= 2) { type = 'half'; }
@@ -3780,7 +3793,7 @@ class MusicXMLSVGRenderer {
             else if (totalBeats >= 0.5) { type = 'eighth'; }
             else { type = '16th'; }
         } else if (beatType === 8) {
-            // Logika untuk time signature X/8 (seperti 3/8, 6/8, 9/8, 12/8)
+            // Logic for time signatures X/8 (such as 3/8, 6/8, 9/8, 12/8)
             if (totalBeats >= 6) { type = 'half'; dots = 1; } // Dotted half
             else if (totalBeats >= 4) { type = 'half'; }
             else if (totalBeats >= 3) { type = 'quarter'; dots = 1; } // Dotted quarter
@@ -3789,7 +3802,7 @@ class MusicXMLSVGRenderer {
             else if (totalBeats >= 1) { type = 'eighth'; }
             else { type = '16th'; }
         } else {
-            // Fallback matematis untuk time signature lainnya (misal 2/2)
+            // Mathematical fallback for other time signatures (e.g., 2/2)
             const value = duration / (4 * divisions);
             if (value >= 1) { type = 'whole'; }
             else if (value >= 0.75) { type = 'half'; dots = 1; }
@@ -3804,32 +3817,33 @@ class MusicXMLSVGRenderer {
     }
 
     /**
-     * Menghitung durasi (dalam divisions) berdasarkan tipe not dan jumlah titik.
-     * Digunakan untuk memastikan layout tetap benar jika terjadi ketidakcocokan
-     * antara tag <duration> dan <type> di dalam file MusicXML.
-     * @param {string} typeName - Nama tipe not (misal: 'half', 'quarter').
-     * @param {number} dots - Jumlah titik (0, 1, dst).
+     * Calculates duration (in divisions) based on note type and number of dots.
+     * Used to ensure layout remains correct if there is a mismatch
+     * between the <duration> tag and <type> in a MusicXML file.
+     * @param {string} typeName - Note type name (e.g., 'half', 'quarter').
+     * @param {number} dots - Number of dots (0, 1, etc.).
      * @param {number} divisions - Divisions per quarter note.
-     * @returns {number} Durasi dalam divisions.
+     * @returns {number} Duration in divisions.
      */
     static getDurationFromType(typeName, dots, divisions) {
         const type = MusicXMLSVGRenderer.NOTE_TYPE_VALUES.find(t => t.name === typeName);
         if (!type) return 0;
         
-        // Nilai dasar dalam ketukan (quarter notes)
+        // Base value in beats (quarter notes)
         const baseValue = type.val; 
         let totalValue = baseValue;
         
-        // Tambahkan nilai titik (setiap titik menambah setengah dari nilai sebelumnya)
+        // Add dot values (each dot adds half of the previous value)
         let dotValue = baseValue * 0.5;
         for (let i = 0; i < dots; i++) {
             totalValue += dotValue;
             dotValue *= 0.5;
         }
         
-        // Konversi kembali ke divisions (1 whole note = 4 * divisions)
+        // Convert back to divisions (1 whole note = 4 * divisions)
         return Math.round(totalValue * 4 * divisions);
     }
+
 }
 
 window.MusicXMLSVGRenderer = MusicXMLSVGRenderer;

@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MusicXML → Score · Preview</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Outfit:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --panel-bg: #ffffff;
+            --border: #e2e8f0;
+            --text: #1e293b;
+            --muted: #64748b;
+            --accent: #3b82f6;
+            --ok: #16a34a;
+            --err: #dc2626;
+        }
+
+        html, body {
+            height: 100%;
+            font-family: 'Inter', sans-serif;
+            background: #f1f5f9;
+            color: var(--text);
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* ─── Toolbar ───────────────────────────────────────── */
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.55rem 0.9rem;
+            background: var(--panel-bg);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+            flex-wrap: wrap;
+        }
+
+        .toolbar h1 {
+            font-size: 0.95rem;
+            font-weight: 700;
+            font-family: 'Outfit', sans-serif;
+            margin-right: 0.35rem;
+            white-space: nowrap;
+        }
+
+        .toolbar label {
+            font-size: 0.78rem;
+            color: var(--muted);
+            white-space: nowrap;
+        }
+
+        .toolbar input[type="text"] {
+            font-size: 0.78rem;
+            padding: 0.32rem 0.55rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            width: 220px;
+            outline: none;
+        }
+
+        .toolbar input[type="text"]:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+        }
+
+        .toolbar button {
+            font-size: 0.78rem;
+            padding: 0.34rem 0.7rem;
+            border: 1px solid var(--border);
+            background: var(--panel-bg);
+            color: var(--text);
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+
+        .toolbar button:hover:not(:disabled) {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+
+        .toolbar button.primary {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+
+        .toolbar .spacer { flex: 1; }
+
+        .toolbar .status {
+            font-size: 0.74rem;
+            color: var(--muted);
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .toolbar .status::before {
+            content: '';
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--muted);
+            flex-shrink: 0;
+        }
+
+        .toolbar .status[data-kind="ok"]::before    { background: var(--ok); }
+        .toolbar .status[data-kind="error"]::before { background: var(--err); }
+        .toolbar .status[data-kind="busy"]::before  { background: #f59e0b; }
+        .toolbar .status[data-kind="error"]         { color: var(--err); }
+
+        /* ─── Split Layout ──────────────────────────────────── */
+        .split-container {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .split-pane {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: var(--panel-bg);
+            min-width: 0;
+        }
+
+        .pane-left  { flex: 1 1 50%; border-right: 2px solid var(--border); }
+        .pane-right { flex: 1 1 50%; }
+
+        .pane-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 0.75rem;
+            background: #f8fafc;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--muted);
+        }
+
+        .pane-body {
+            flex: 1;
+            overflow: auto;
+            position: relative;
+        }
+
+        .pane-body svg {
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+
+        .pane-body iframe {
+            display: block;
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .placeholder {
+            padding: 2rem;
+            text-align: center;
+            color: var(--muted);
+            font-size: 0.88rem;
+        }
+
+        .error {
+            color: var(--err);
+            padding: 1rem;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            white-space: pre-wrap;
+        }
+
+        /* ─── XML Bar ───────────────────────────────────────── */
+        .xml-bar {
+            flex-shrink: 0;
+            border-top: 1px solid var(--border);
+            background: #f8fafc;
+            max-height: 40px;
+            transition: max-height 0.25s ease;
+            overflow: hidden;
+        }
+
+        .xml-bar.open { max-height: 240px; }
+
+        .xml-bar-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            cursor: pointer;
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--muted);
+            user-select: none;
+        }
+
+        .xml-bar-toggle:hover { background: #f1f5f9; }
+
+        .xml-bar-toggle .arrow { transition: transform 0.2s; }
+        .xml-bar.open .xml-bar-toggle .arrow { transform: rotate(90deg); }
+
+        .xml-content {
+            padding: 0.5rem 0.75rem;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.68rem;
+            line-height: 1.45;
+            color: var(--text);
+            background: #fff;
+            border-top: 1px solid var(--border);
+            overflow: auto;
+            max-height: 200px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            margin: 0;
+        }
+
+        /* ─── Responsive ────────────────────────────────────── */
+        @media (max-width: 860px) {
+            .split-container { flex-direction: column; }
+            .pane-left { border-right: none; border-bottom: 2px solid var(--border); }
+            .toolbar h1 { display: none; }
+            .toolbar input[type="text"] { width: 140px; }
+        }
+
+        #score-container { padding-bottom: 40px; }
+    </style>
+</head>
+<body>
+
+    <!-- ─── Toolbar ──────────────────────────────────────── -->
+    <div class="toolbar">
+        <h1>MusicXML → Score</h1>
+
+        <label for="xml-url-input">Sumber:</label>
+        <input type="text" id="xml-url-input" value="score.musicxml" spellcheck="false" autocomplete="off">
+        <button id="reload-btn" class="primary">Muat Ulang</button>
+
+        <div class="spacer"></div>
+        <span class="status" id="status-label" data-kind="busy">Inisialisasi…</span>
+    </div>
+
+    <!-- ─── Split: SVG (kiri) | PDF (kanan) ──────────────── -->
+    <div class="split-container">
+
+        <!-- Panel Kiri: SVG Score -->
+        <div class="split-pane pane-left">
+            <div class="pane-header">
+                <span>SVG Score</span>
+                <span id="svg-meta"></span>
+            </div>
+            <div class="pane-body" id="score-container">
+                <p class="placeholder">Memuat partitur…</p>
+            </div>
+            <div class="xml-bar" id="xml-bar">
+                <div class="xml-bar-toggle" id="xml-bar-toggle">
+                    <span class="arrow">▶</span>
+                    <span>MusicXML Source</span>
+                </div>
+                <pre class="xml-content" id="xml-output-container">XML akan ditampilkan di sini…</pre>
+            </div>
+        </div>
+
+        <!-- Panel Kanan: PDF Preview -->
+        <div class="split-pane pane-right">
+            <div class="pane-header">
+                <span>PDF Preview</span>
+                <span id="pdf-meta"></span>
+            </div>
+            <div class="pane-body" id="pdf-container">
+                <p class="placeholder">Membuat PDF…</p>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- jsPDF dari CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <!-- Library renderer lokal (Live Server akan reload halaman bila berubah) -->
+    <script src="MusicXMLSVGRenderer.js"></script>
+    <script src="MusicXMLPDFRenderer.js"></script>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        'use strict';
+
+        const DEFAULT_XML  = 'score.musicxml';
+        const STORAGE_KEY  = 'musicxml-dev-preview-url';
+
+        /* ─── Elemen ─────────────────────────────────────────── */
+        const els = {
+            xmlUrl:       document.getElementById('xml-url-input'),
+            reloadBtn:    document.getElementById('reload-btn'),
+            status:       document.getElementById('status-label'),
+            score:        document.getElementById('score-container'),
+            pdf:          document.getElementById('pdf-container'),
+            xmlBar:       document.getElementById('xml-bar'),
+            xmlBarToggle: document.getElementById('xml-bar-toggle'),
+            xmlOutput:    document.getElementById('xml-output-container'),
+            svgMeta:      document.getElementById('svg-meta'),
+            pdfMeta:      document.getElementById('pdf-meta'),
+        };
+
+        let state = {
+            xmlUrl:    DEFAULT_XML,
+            pdfUrl:    null,
+            lastXml:   null,
+        };
+
+        /* ─── Utilitas ───────────────────────────────────────── */
+        function setStatus(text, kind) {
+            els.status.textContent = text;
+            els.status.dataset.kind = kind || '';
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => (
+                { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]
+            ));
+        }
+
+        function timeStr() {
+            return new Date().toLocaleTimeString('id-ID');
+        }
+
+        function withCacheBust(url) {
+            try {
+                const u = new URL(url, location.href);
+                u.searchParams.set('__t', Date.now().toString(36));
+                return u.toString();
+            } catch (e) {
+                return url;
+            }
+        }
+
+        function saveUrl(url) {
+            try { localStorage.setItem(STORAGE_KEY, url); } catch (e) {}
+        }
+
+        function loadUrl() {
+            try {
+                const v = localStorage.getItem(STORAGE_KEY);
+                if (v) state.xmlUrl = v;
+            } catch (e) {}
+        }
+
+        /* ─── Rendering ──────────────────────────────────────── */
+
+        function renderSVG(xmlText) {
+            els.score.innerHTML = '';
+            els.svgMeta.textContent = '';
+            const t0 = performance.now();
+
+            try {
+                if (typeof MusicXMLSVGRenderer !== 'function') {
+                    throw new Error('MusicXMLSVGRenderer tidak tersedia.');
+                }
+                const renderer = new MusicXMLSVGRenderer(els.score, {
+                    systemSpacing: 120,
+                    staffSpacing: 120,
+                    partSpacing: 80,
+                });
+                renderer.render(xmlText);
+                els.svgMeta.textContent = `${Math.round(performance.now() - t0)} ms`;
+            } catch (err) {
+                console.error('Render SVG gagal:', err);
+                els.score.innerHTML =
+                    `<p class="error">Gagal render SVG:\n${escapeHtml(err.message)}</p>`;
+                els.svgMeta.textContent = 'error';
+                throw err;
+            }
+        }
+
+        function renderPDF(xmlText) {
+            els.pdf.innerHTML = '<p class="placeholder">Membuat PDF…</p>';
+            els.pdfMeta.textContent = '';
+
+            return new Promise((resolve) => {
+                // Biarkan browser melukis dulu sebelum kerja berat jsPDF
+                requestAnimationFrame(() => {
+                    const t0 = performance.now();
+                    try {
+                        if (typeof MusicXMLPDFRenderer !== 'function') {
+                            throw new Error('MusicXMLPDFRenderer tidak tersedia.');
+                        }
+                        const pdfRenderer = new MusicXMLPDFRenderer();
+                        pdfRenderer.render(xmlText);
+
+                        const blob = pdfRenderer.doc.output('blob');
+                        const url  = URL.createObjectURL(blob);
+
+                        els.pdf.innerHTML = '';
+                        if (state.pdfUrl) URL.revokeObjectURL(state.pdfUrl);
+                        state.pdfUrl = url;
+
+                        const iframe = document.createElement('iframe');
+                        iframe.src   = url + '#toolbar=1&view=FitH';
+                        iframe.title = 'PDF Preview';
+                        els.pdf.appendChild(iframe);
+
+                        els.pdfMeta.textContent = `${Math.round(performance.now() - t0)} ms`;
+                        resolve();
+                    } catch (err) {
+                        console.error('Render PDF gagal:', err);
+                        els.pdf.innerHTML =
+                            `<p class="error">Gagal render PDF:\n${escapeHtml(err.message)}</p>`;
+                        els.pdfMeta.textContent = 'error';
+                        resolve();
+                    }
+                });
+            });
+        }
+
+        /* ─── Load & Render ──────────────────────────────────── */
+
+        async function loadAndRender(force = false) {
+            const url = state.xmlUrl;
+            if (!force && state.lastXml && url === state.lastXml.url) {
+                // sudah dirender
+                return;
+            }
+
+            setStatus('Memuat ' + url + '…', 'busy');
+            els.score.innerHTML = '<p class="placeholder">Memuat ' + escapeHtml(url) + '…</p>';
+            els.pdf.innerHTML   = '<p class="placeholder">Menunggu XML…</p>';
+            els.xmlOutput.textContent = '';
+
+            try {
+                const res = await fetch(withCacheBust(url), { cache: 'no-store' });
+                if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+                const xmlText = await res.text();
+
+                state.lastXml = { url, text: xmlText };
+                els.xmlOutput.textContent = xmlText;
+
+                renderSVG(xmlText);
+                await renderPDF(xmlText);
+
+                setStatus('Siap · ' + timeStr(), 'ok');
+            } catch (err) {
+                console.error('Gagal memuat XML:', err);
+                els.score.innerHTML =
+                    `<p class="error">Gagal memuat "${escapeHtml(url)}":\n${escapeHtml(err.message)}\n\n` +
+                    `Pastikan file ada & halaman dibuka via Live Server (http://).</p>`;
+                els.pdf.innerHTML = '<p class="placeholder">—</p>';
+                setStatus('Gagal: ' + err.message, 'error');
+            }
+        }
+
+        /* ─── Events ─────────────────────────────────────────── */
+
+        els.xmlBarToggle.addEventListener('click', () => {
+            els.xmlBar.classList.toggle('open');
+        });
+
+        els.reloadBtn.addEventListener('click', () => {
+            const val = els.xmlUrl.value.trim() || DEFAULT_XML;
+            state.xmlUrl = val;
+            state.lastXml = null;
+            saveUrl(val);
+            loadAndRender(true);
+        });
+
+        els.xmlUrl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') els.reloadBtn.click();
+        });
+
+        /* ─── Bootstrap ──────────────────────────────────────── */
+
+        loadUrl();
+        els.xmlUrl.value = state.xmlUrl;
+        loadAndRender(true);
+    });
+    </script>
+</body>
+</html>

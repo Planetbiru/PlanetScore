@@ -5,10 +5,13 @@
  *
  * Compatible with Node.js and browser environments.
  * 
- * @author Antigravity
+ * @author Kamshory
  */
 class MidiToMusicXML {
 
+    /**
+     * Constructor initializes the MidiToMusicXML instance with default properties.
+     */
     constructor() {
         this.parsed = null;
         this.xmlContent = null;
@@ -136,8 +139,7 @@ class MidiToMusicXML {
         const parsed = MidiParser.parse(buffer, {
             normalize: opts.normalize,
             forceUpdateEvents: opts.forceUpdateEvents
-        });
-        
+        });        
 
         // ============================================================
         // Hitung snap dalam ticks setelah parsed tersedia
@@ -1241,11 +1243,15 @@ class MidiToMusicXML {
     }
 
     /**
-     * Helper to generate an array of <note> XML strings for a given rest duration.
+     * Generates an array of MusicXML <note> strings representing rests
+     * for a given duration, correctly applying the staff parameter.
+     * @param {number} durationDivs - Rest duration in divisions.
+     * @param {number} divisions - Divisions per quarter note.
+     * @param {number} ch - MIDI channel.
+     * @param {string} partId - Identifier of the part.
+     * @param {number} [staff=1] - Staff number (default 1).
+     * @returns {Array<{xml: string, durationDivs: number}>} Array of rest note XML blocks.
      */
-    // ============================================================
-    // PERBAIKAN 5: generateRests now properly uses staff parameter
-    // ============================================================
     generateRests(durationDivs, divisions, ch, partId, staff = 1) {
         const restPieces = this.splitIntoRepresentableDurations(durationDivs, divisions);
         return restPieces.map(restDivs => ({
@@ -1268,7 +1274,22 @@ class MidiToMusicXML {
     }
 
     /**
-     * Helper to create a single MusicXML <note> block
+     * Creates a single MusicXML <note> block based on provided parameters.
+     * Handles pitched notes, percussion, rests, ties, dynamics, beams, and lyrics.
+     * @param {Object} params - Note parameters.
+     * @param {boolean} params.isChord - Whether this note is part of a chord.
+     * @param {boolean} params.isRest - Whether this note is a rest.
+     * @param {number} params.ch - MIDI channel.
+     * @param {string} params.partId - Identifier of the part.
+     * @param {number} params.noteCode - MIDI note number.
+     * @param {number} params.durationDivs - Duration in divisions.
+     * @param {number} params.divisions - Divisions per quarter note.
+     * @param {number} params.dynamics - Dynamic level (percentage).
+     * @param {number} params.staff - Staff number.
+     * @param {string|null} params.tieType - Tie type ("start", "stop", "stop_start").
+     * @param {string|null} params.lyricText - Lyric text.
+     * @param {string|null} params.beamType - Beam type.
+     * @returns {string} MusicXML <note> block.
      */
     generateNoteXML(params) {
         const { isChord, isRest, ch, partId, noteCode, durationDivs, divisions, dynamics, staff, tieType, lyricText, beamType } = params;
@@ -1388,7 +1409,11 @@ class MidiToMusicXML {
     }
 
     /**
-     * Splits non-standard duration in divisions to pieces of standard notation durations.
+     * Splits a non-standard duration (in divisions) into pieces of standard
+     * notation durations (including dotted values).
+     * @param {number} duration - Duration in divisions.
+     * @param {number} divisions - Divisions per quarter note.
+     * @returns {number[]} Array of representable durations in divisions.
      */
     splitIntoRepresentableDurations(duration, divisions) {
         const pieces = [];
@@ -1438,6 +1463,13 @@ class MidiToMusicXML {
         return pieces;
     }
     
+    /**
+     * Determines the MusicXML note type string (e.g., "quarter", "eighth")
+     * based on duration in divisions.
+     * @param {number} duration - Duration in divisions.
+     * @param {number} divisions - Divisions per quarter note.
+     * @returns {string} Note type name.
+     */
     getNoteType(duration, divisions) {
         if (divisions <= 0 || duration <= 0) {
             return '1024th';
@@ -1467,6 +1499,13 @@ class MidiToMusicXML {
         return '1024th';
     }
 
+    /**
+     * Determines the number of dots for a note based on duration in divisions.
+     * Supports single, double, and triple dots.
+     * @param {number} duration - Duration in divisions.
+     * @param {number} divisions - Divisions per quarter note.
+     * @returns {number} Number of dots (0–3).
+     */
     getNoteDots(duration, divisions) {
         if (divisions <= 0 || duration <= 0) {
             return 0;
@@ -1508,6 +1547,12 @@ class MidiToMusicXML {
         return 0;
     }
 
+    /**
+     * Provides visual mapping for drum/percussion notes in MusicXML.
+     * Maps MIDI note numbers to staff position, octave, notehead style, and stem direction.
+     * @param {number} noteCode - MIDI note number.
+     * @returns {{step: string, octave: number, notehead: string, stem: string}} Drum visuals.
+     */
     getDrumVisuals(noteCode) {
         let step = 'G', octave = 5, notehead = 'x', stem = 'up';
         switch (noteCode) {
@@ -1564,6 +1609,12 @@ class MidiToMusicXML {
         return { step, octave, notehead, stem };
     }
 
+    /**
+     * Escapes special XML characters in a string.
+     * Converts &, <, >, ", ' into their XML entity equivalents.
+     * @param {string} str - Input string.
+     * @returns {string} Escaped XML string.
+     */
     escapeXML(str) {
         if (!str) return '';
         return str.toString()

@@ -4,7 +4,7 @@
  * This class adapts the layout and drawing logic from MusicXMLPDFRenderer
  * to generate a multi-page PDF document using the jsPDF library.
  * 
- * @author Gemini Code Assist
+ * @author Kamshory
  * @dependency jsPDF
  */
 class MusicXMLPDFRenderer {
@@ -71,7 +71,7 @@ class MusicXMLPDFRenderer {
         this.showPageNumbers = options.showPageNumbers !== false;
         this.pageNumberColor = options.pageNumberColor ?? [100, 116, 139];
         this.pageNumberMarginBottom = options.pageNumberMarginBottom ?? 18;
-        this.firstSystemGap = options.firstSystemGap ?? 0;
+        this.firstSystemGap = options.firstSystemGap ?? 20;
 
         this.autoClef = options.autoClef !== false;
         this.allowAltoClef = options.allowAltoClef === true;
@@ -757,7 +757,8 @@ class MusicXMLPDFRenderer {
                     const ratio = onset / totalMeasureDivs;
                     const padding = 8;
                     const xRange = measureWidth - padding * 2;
-                    let colX = currentX + padding + ratio * xRange;
+                    const clampedRatio = Math.min(1.0, Math.max(0.0, ratio));
+                    let colX = currentX + padding + clampedRatio * xRange;
 
                     const hasTieStart = colNotes.some(n => n.tieStart);
                     const hasTieStop = colNotes.some(n => n.tieStop);
@@ -1499,8 +1500,10 @@ class MusicXMLPDFRenderer {
      * @returns {void}
      */
     drawBeams(stems) {
-        if (!stems || stems.length < 2) {
-            stems.forEach(s => this.drawFlagForStem(s));
+        if (!stems || stems.length === 0) return;
+
+        if (stems.length === 1) {
+            this.drawFlagForStem(stems[0]);
             return;
         }
 
@@ -1911,47 +1914,62 @@ class MusicXMLPDFRenderer {
             case '16th':
             case '32nd': {
                 const hookPath = "M 1.098 0 C 0.578 0.098 0.18 0.457 0 0.953 C -0.039 1.113 -0.039 1.152 -0.039 1.371 C -0.039 1.672 -0.02 1.832 0.121 2.07 C 0.32 2.469 0.738 2.789 1.215 2.906 C 1.715 3.047 3 3.153 4 2.153 L 4.941 0.598 C 4.844 0.477 4.645 0.438 4.523 0.535 C 4.484 0.574 4.422 0.656 4.383 0.715 C 4.203 1.016 3.746 1.551 3.508 1.75 C 3.289 1.93 3.168 1.949 2.969 1.871 C 2.789 1.773 2.73 1.672 2.609 1.133 C 2.492 0.598 2.352 0.355 2.051 0.156 C 1.773 -0.023 1.414 -0.082 1.098 0 z";
-
-                // ==== Parameter ukuran flag ====
-                const hookScale = 1.3;
+                let scale = this.GLOBAL_SCALE ?? 1.0;
+                
+                // ==== Parameter ukuran flag (DISAMAKAN DENGAN SVG) ====
+                const hookScale = 2.2 * scale; 
                 const HOOK_NATIVE_W = 4.941;
                 const HOOK_NATIVE_H = 2.906;
                 const hookW = HOOK_NATIVE_W * hookScale;
                 const hookH = HOOK_NATIVE_H * hookScale;
-                const flagGap = hookH + 1.2;
-                // flagShift TIDAK LAGI konstanta — dihitung dari gradient stem
-                // ================================
+                const flagGap = hookH * 1.25;
 
-                // Posisi stem
-                const xPos     = x - 8;
-                const stemTopX = xPos + 15;
-                const stemTopY = y + 6.75;
-                const stemBotX = xPos + 10;
-                const stemBotY = y + 28;
+                // ==== Posisi stem (DISAMAKAN DENGAN SVG) ====
+                const xPos = x;
+                let stemTopX = xPos + 4 * scale; // Diubah dari +3
+                let stemTopY = y + 10 * scale;   // Diubah dari +10
+                let stemBotX = xPos - 1 * scale;             
+                let stemBotY = y + 30 * scale;   // Diubah dari +30
+
+                if (type === '32nd') {
+                    const slope = (stemBotX - stemTopX) / (stemBotY - stemTopY);
+                    stemTopY = y + 2 * scale; 
+                    // Pertahankan gradien
+                    stemBotX = stemTopX + (stemBotY - stemTopY) * slope;
+                }
 
                 // ==== Hitung gradient stem ====
-                const stemDx = stemBotX - stemTopX;   // -5
-                const stemDy = stemBotY - stemTopY;   // 21.25
-                const stemSlope = stemDy !== 0 ? (stemDx / stemDy) : 0;   // ≈ -0.2353
-                // ================================
+                const stemDx = stemBotX - stemTopX;    
+                const stemDy = stemBotY - stemTopY;    
+                const stemSlope = stemDy !== 0 ? (stemDx / stemDy) : 0;   
 
                 // Gambar stem
                 this.doc.setDrawColor(...color);
-                this.doc.setLineWidth(1.1);
+                this.doc.setLineWidth(1.2 * scale);
                 this.doc.line(stemTopX, stemTopY, stemBotX, stemBotY);
 
-                // Gambar flag pertama
+                // Gambar flag
                 this.doc.setFillColor(...color);
                 const flag1X = stemTopX - hookW;
-                const flag1Y = stemTopY;
-                this.drawSVGPath(hookPath, flag1X, flag1Y, hookScale, hookScale, true);
+                const flag1Y = stemTopY - hookH * 0.2; 
 
-                // Flag kedua untuk 16th / 32nd
-                if (type === '16th' || type === '32nd') {
-                    // Pergeseran horizontal mengikuti gradient stem
-                    const flag2X = flag1X + stemSlope * flagGap;
-                    const flag2Y = flag1Y + flagGap;
-                    this.drawSVGPath(hookPath, flag2X, flag2Y, hookScale, hookScale, true);
+                // Tentukan jumlah flag berdasarkan tipe
+                let numFlags = 1;
+                if (type === '16th') numFlags = 2;
+                if (type === '32nd') numFlags = 3;
+
+                // Loop untuk menggambar semua flag (menjamin tidak ada yang hilang)
+                for (let i = 0; i < numFlags; i++) {
+                    const flagX = flag1X + stemSlope * (flagGap * i);
+                    const flagY = flag1Y + (flagGap * i);
+                    this.drawSVGPath(hookPath, flagX, flagY, hookScale, hookScale, true);
+                }
+
+                // Update restInfo jika diperlukan
+                if (typeof restInfo !== 'undefined') {
+                    restInfo.xPos = stemTopX;
+                    restInfo.y = y + 2 * this.lineSpacing;
+                    restInfo.width = 10 * scale;
                 }
                 break;
             }
