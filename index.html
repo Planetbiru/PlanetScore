@@ -673,7 +673,6 @@
                 try {
                     statusLabel.textContent = 'Membuat PDF…';
                     const pdfRenderer = new MusicXMLPDFRenderer();
-                    console.log(lastGeneratedXML)
                     pdfRenderer.render(lastGeneratedXML);
 
                     const pdfBlob = pdfRenderer.doc.output('blob');

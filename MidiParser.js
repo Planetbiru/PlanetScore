@@ -2,7 +2,7 @@
  * MidiParser provides static methods to decode binary MIDI file data into a structured JavaScript object.
  * It handles MIDI Format 0 and 1, Note On/Off events, Program Changes, and various Meta events.
  * 
- * @author Kamshory <kamshory@gmail.com>
+ * @author Kamshory
  */
 class MidiParser {
     /**
