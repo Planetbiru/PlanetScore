@@ -1064,7 +1064,7 @@ class MusicXMLPDFRenderer {
         this.doc.setLineWidth(0.7);
         for (let i = 0; i < 5; i++) {
             const lineY = y + i * this.lineSpacing;
-            this.doc.line(x, lineY, x + width, lineY);
+            this.doc.line(x - 0.654, lineY, x + width + 0.6, lineY);
         }
 
         this.currentSystemLeftX  = x;
@@ -1122,7 +1122,7 @@ class MusicXMLPDFRenderer {
             this.doc.setLineWidth(1.1);
             this.doc.line(x - 5, y, x - 5, y + totalSystemHeight);
             this.doc.setLineWidth(3.5);
-            this.doc.line(x, y, x, y + totalSystemHeight);
+            this.doc.line(x, y - 0.35, x, y + totalSystemHeight + 0.35);
         } else {
             this.doc.setLineWidth(1.2);
             this.doc.line(x, y, x, y + totalSystemHeight);
