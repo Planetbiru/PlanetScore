@@ -224,6 +224,21 @@ Lower values (e.g. `0` = middle C) make the swap conservative; higher values (e.
 
 **Interaction with explicit clef changes**: If the MusicXML explicitly changes clef mid-piece (e.g. a passage written in a different register), the auto-clef only overrides the *first* measure's clef. Subsequent explicit clef changes are respected. This is enforced by the `_clefAutoApplied` flag set on each `staffState` entry.
 
+### Bass Guitar Octave Adjustment
+
+Electric bass guitar produces pitches in a very low register — typically E1 (MIDI note 28) up to G3 (MIDI note 55), with the open E string sounding at roughly 41 Hz. When a bass guitar track is rendered to standard notation as-is, the notes fall far below the bass clef staff and require a very large number of ledger lines. This makes the score hard to read, causes note heads and lyrics to collide, and can even trigger the auto-clef logic to push the part into an unintended clef.
+
+To produce a readable score, **raise the bass guitar part by one octave (12 semitones) before the conversion and rendering pipeline begins.** This is standard practice in bass-guitar notation: the part is written one octave higher than it sounds, and the performer understands to play an octave lower.
+
+#### Where the transposition must happen
+
+The transposition is **not** a responsibility of `MidiToMusicXML` or of either renderer. Both components are intentionally unaware of instrument-specific octave conventions:
+
+- `MidiToMusicXML` converts whatever MIDI it receives, verbatim (aside from the uniform `transpose` option).
+- `MusicXMLSVGRenderer` and `MusicXMLPDFRenderer` render whatever MusicXML they receive, verbatim.
+
+Therefore the bass-guitar octave shift must be applied **upstream**, on the MIDI data itself, before `convert()` is called. The converter and renderers then operate on a normal, readable bass part without needing any special-case logic.
+
 ### Additional Constructor Options
 
 Beyond the spacing controls documented above, the SVG constructor also accepts:
@@ -256,6 +271,7 @@ Walks every measure of every part and returns a per-staff summary:
   2: { minDiatonic: -12, maxDiatonic: -2, avgDiatonic: -7.1, hasNotes: true, noteCount: 96 },
   ...
 }
+```
 
 ---
 
@@ -367,6 +383,7 @@ Walks every measure of every part and returns a per-staff summary:
   2: { minDiatonic: -12, maxDiatonic: -2, avgDiatonic: -7.1, hasNotes: true, noteCount: 96 },
   ...
 }
+```
 
 ---
 
@@ -1200,4 +1217,3 @@ You can freely mix individual and batch registration. Individual setters are the
 - **Mobile support.** Drag uses both `mousedown`/`mousemove` and `touchstart`/`touchmove`. Call `e.preventDefault()` is handled internally — no extra configuration is needed.
 - **`commentMode` vs. `commentsVisible`.** `commentMode` controls whether interactions are allowed; `commentsVisible` controls whether the overlay is drawn at all. They are usually set together via `setCommentMode`, but `showComments` / `hideComments` can toggle visibility independently.
 - **Overlay ordering.** The comment overlay is appended to the SVG root after all systems, and the playhead is re-appended to the top on every `updatePlayhead` call. As a result, the playhead may draw over comments. If you want comments to always sit above the playhead, wrap the playhead and comment layer in separate groups and manage `z`-order via DOM position instead.
-```
