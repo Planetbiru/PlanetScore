@@ -115,6 +115,8 @@ This is the main entry point for the conversion process.
 | `useRestFilling` | boolean | `true` | Fill rhythmic gaps with rests. |
 | `snapPosition` | number \| null | `null` | Snaps note onsets to the nearest multiple of this value (in note-fractions). |
 | `snapDuration` | number \| null | `null` | Snaps note durations to the nearest multiple of this value (in note-fractions). |
+| `transposeBass` |	boolean	| `false` | Additionally transpose bass-instrument notes by +12 semitones. |
+| `transposeBassInstruments` | number[] |	`[32,33,34,35,36,37,38,39]` | GM program numbers (0-indexed) treated as bass instruments. |
 
 #### `splitThreshold` vs `minSplitRange` — When to Use Which
 
@@ -138,6 +140,56 @@ Example scenarios with `splitThreshold: 24`, `minSplitRange: 30`:
 | Drum kit | — | — | — | 1 staff (always) |
 
 To disable the floor (legacy behavior), set `minSplitRange: 0`.
+
+### Bass Instrument Transposition
+
+Electric bass, acoustic bass, and other low-register instruments sound an octave below where they are conventionally written. Without adjustment, their notes fall far below the bass clef and require an impractical number of ledger lines, collide with the lyric row, and can even trigger the renderer's auto-clef logic to pick an unintended clef.
+
+The `transposeBass` option solves this **inside `MidiToMusicXML`**, using a *per-note*, *program-aware* rule:
+
+- It works **independently of the global `transpose`** option and is applied on top of it.
+- It is evaluated **per note**, not per channel. A channel that switches between instruments (e.g., an acoustic-guitar intro that later switches to bass) has only its bass notes shifted — the guitar notes are left untouched.
+- **MIDI channel 9 (drum kit) is never affected**, regardless of any option.
+
+**Behavior Summary**
+
+| Scenario | `transpose` | `transposeBass` | Bass note result | Non-bass note result |
+|---|---|---|---|---|
+| No transposition | `0` | `false` | +0 | +0 |
+| Global transpose only | `2` | `false` | +2 | +2 |
+| Bass transpose only | `0` | `true` | **+12** | +0 |
+| Both active | `2` | `true` | **+14** (= 2 + 12) | +2 |
+| Drum channel (9) | any | any | **+0** | **+0** |
+
+**How "bass instrument" is determined**
+
+The converter inspects the **Program Change events** of the note's channel via `parsed.header.channelProgramChanges[ch]`. For each note, it finds the program that is active at the note's `ticks` (i.e., the most recent Program Change at or before that tick) and checks whether it belongs to `transposeBassInstruments`.
+
+This is why a single channel can safely contain both guitar and bass notes: each note is evaluated against the program that was actually in effect when it was played.
+
+**Example**
+
+```js
+const converter = new MidiToMusicXML();
+
+converter.convert(midiBuffer, {
+    title: 'My Song',
+    transpose: 2,              // +2 semitones for every melodic part
+    transposeBass: true,       // bass instruments get an extra +12
+    transposeBassInstruments: [32, 33, 34, 35, 36, 37, 38, 39]
+});
+```
+
+In the example above:
+
+- A flute melody (program 73) is shifted by **+2**.
+- An electric bass (program 33) is shifted by **+14**.
+- A guitar (program 24) that shares a channel with the bass is shifted by **+2** on its own notes.
+- The drum kit on channel 9 is **not** shifted at all.
+
+**Relationship with the SVG/PDF Renderers**
+
+`transposeBass` is a **score-generation** concern, not a rendering concern. The SVG and PDF renderers see only the resulting MusicXML — they do not know which notes were bass notes and do not apply any instrument-specific octave shift of their own. This matches the design principle documented under *Bass Guitar Octave Adjustment*: instrument-specific octave conventions belong upstream of `convert()`, and `transposeBass` is the mechanism that fulfils that role without requiring the caller to pre-process the MIDI buffer.
 
 ---
 

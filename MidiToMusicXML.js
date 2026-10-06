@@ -132,18 +132,18 @@ class MidiToMusicXML {
             minSplitRange: null,
             forceUpdateEvents: true,
             snapPosition: null,   // Snap for note onset/offset
-            snapDuration: null    // Snap for note duration
+            snapDuration: null,    // Snap for note duration
+            transpose: 0,
+            transposeBass: false,
+            transposeBassInstruments: [32, 33, 34, 35, 36, 37, 38, 39] // GM bass programs (0-indexed)
         }, options);
 
         // Parse MIDI binary using the project's MidiParser
         const parsed = MidiParser.parse(buffer, {
             normalize: opts.normalize,
             forceUpdateEvents: opts.forceUpdateEvents
-        });        
+        });
 
-        // ============================================================
-        // Hitung snap dalam ticks setelah parsed tersedia
-        // ============================================================
         const ppq = parsed.header.ppq;
 
         // snapPosition / snapDuration dalam satuan not (misal 1/8 = 0.125)
@@ -159,9 +159,6 @@ class MidiToMusicXML {
         opts._snapDurationTicks = snapDurTicks;
 
         // If a specific track is requested, keep only that track (ignore others)
-        // ============================================================
-        // TERAPKAN MUTE CHANNEL (dari client)
-        // ============================================================
         if (Array.isArray(opts.muteChannels) && opts.muteChannels.length > 0) {
             const muteSet = new Set(opts.muteChannels);
             parsed.tracks.forEach(track => {
@@ -177,25 +174,46 @@ class MidiToMusicXML {
             });
         }
 
-        // ============================================================
-        // TERAPKAN TRANSPOSE (di level track, sebelum convertParsed)
-        // ============================================================
+        const getProgramAtTick = (ch, tick) => {
+            const progChanges = parsed.header.channelProgramChanges[ch] || [];
+            let program = 0;
+            for (const pc of progChanges) {
+                if (pc.ticks <= tick) program = pc.program;
+                else break;
+            }
+            return program;
+        };
+
         const transposeOpt = opts.transpose || 0;
-        if (transposeOpt !== 0) {
+        const transposeBass = opts.transposeBass === true;
+        const transposeBassSet = new Set(
+            Array.isArray(opts.transposeBassInstruments) && opts.transposeBassInstruments.length > 0
+                ? opts.transposeBassInstruments
+                : [32, 33, 34, 35, 36, 37, 38, 39]
+        );
+
+        if (transposeOpt !== 0 || transposeBass) {
             parsed.tracks.forEach(track => {
                 if (!track.notes) return;
                 track.notes.forEach(n => {
-                    // Skip drum (channel 9)
                     if (n.channel === 9) return;
-                    n.midi = Math.max(0, Math.min(127, n.midi + transposeOpt));
+
+                    let totalTranspose = transposeOpt;
+
+                    if (transposeBass) {
+                        const program = getProgramAtTick(n.channel, n.ticks);
+                        if (transposeBassSet.has(program)) {
+                            totalTranspose += 12;
+                        }
+                    }
+
+                    if (totalTranspose !== 0) {
+                        n.midi = Math.max(0, Math.min(127, n.midi + totalTranspose));
+                    }
                 });
             });
         }
 
-        // ============================================================
-        // FILTER TRACK — terima number (single) ATAU array (multiple)
-        // Meta track (track tanpa note) SELALU dipertahankan.
-        // ============================================================
         if (opts.selectedTracks != null) {
             let trackIndices = [];
             if (Array.isArray(opts.selectedTracks)) {
@@ -227,7 +245,14 @@ class MidiToMusicXML {
         // Determine lyric channel
         // Priority: opts.lyricChannelId (user-specified, 1-indexed MIDI)
         //           opts._lyricChannelId (internal, 0-indexed)
-        // Fallback: MIDI channel 4 (index 3), else first active channel
+        // Fallback: MIDI channel 4 (index 3) — but ONLY if it is actually
+        //           present in the rendered score. Otherwise, look for an
+        //           active channel whose notes share ticks with the lyric
+        //           events. If none is found, DISABLE lyrics entirely.
+        //
+        // NOTE: We deliberately do NOT fall back to "first active channel".
+        // Doing so caused lyrics to leak onto accompaniment parts (e.g. the
+        // bass part) whenever the vocal channel was filtered out of the score.
         let lyricChannelId = -1;
 
         if (opts.lyricChannelId != null) {
@@ -243,11 +268,29 @@ class MidiToMusicXML {
                 }
             }
         } else {
-            // Auto-detect: prefer channel 3 (MIDI ch 4)
+            // Auto-detect
             if (activeChannelsInScore.has(3)) {
+                // Preferred channel (MIDI ch 4) is present → use it.
                 lyricChannelId = 3;
-            } else if (activeChannelsInScore.size > 0) {
-                lyricChannelId = [...activeChannelsInScore].sort((a,b)=>a-b)[0];
+            } else {
+                // Preferred channel not rendered. Look for a channel that
+                // actually carries lyrics AND is present in the score.
+                // Do NOT guess — if nothing matches, disable lyrics.
+                let detected = -1;
+                parsed.tracks.forEach(track => {
+                    if (detected !== -1) return;
+                    if (!track.lyrics || track.lyrics.length === 0) return;
+                    if (!track.notes  || track.notes.length  === 0) return;
+
+                    const lyricTicks = new Set(track.lyrics.map(l => l.ticks));
+                    for (const n of track.notes) {
+                        if (lyricTicks.has(n.ticks) && activeChannelsInScore.has(n.channel)) {
+                            detected = n.channel;
+                            break;
+                        }
+                    }
+                });
+                lyricChannelId = detected; // may be -1 → lyrics disabled
             }
         }
 
@@ -304,23 +347,20 @@ class MidiToMusicXML {
             notes.sort((a, b) => a.ticks - b.ticks);
         });
 
-        // ============================================================
-        // TERAPKAN SNAP PADA SETIAP NOTE
-        // ============================================================
         const snapPosTicks = opts._snapPositionTicks;
         const snapDurTicks = opts._snapDurationTicks;
 
         if (snapPosTicks || snapDurTicks) {
             channelNotes.forEach(notes => {
                 notes.forEach(n => {
-                    // Snap onset (posisi mulai)
+                    // Snap onset
                     if (snapPosTicks) {
                         n.ticks = Math.round(n.ticks / snapPosTicks) * snapPosTicks;
                     }
-                    // Snap durasi
+                    // Snap duration
                     if (snapDurTicks) {
                         n.durationTicks = Math.round(n.durationTicks / snapDurTicks) * snapDurTicks;
-                        // Pastikan durasi minimal 1 tick
+                        // At least 1 tick
                         if (n.durationTicks < 1) n.durationTicks = snapDurTicks;
                     }
                 });
@@ -674,9 +714,6 @@ class MidiToMusicXML {
                 // Kumpulkan semua elemen not dan sisipan dalam birama ini sebelum menuliskannya
                 const measureElements = [];
 
-                // ============================================================
-                // PERBAIKAN 1: Process tied notes with staff awareness
-                // ============================================================
                 const tieKeys = Object.keys(tieContinue).map(Number);
                 if (tieKeys.length > 0) {
                     // Group tie notes by staff
@@ -764,11 +801,6 @@ class MidiToMusicXML {
                     });
                 }
 
-                                // Process regular notes in this measure
-                // ============================================================
-                // PERBAIKAN: Kelompokkan not berdasarkan xmlStart dan staff
-                // untuk mendeteksi akor secara akurat tanpa toleransi tick
-                // ============================================================
                 const noteGroups = {};
                 notesInMeasure.forEach(note => {
                     const offsetTicks = note.ticks - measureStartTick;
@@ -906,7 +938,7 @@ class MidiToMusicXML {
 
                                     measureElements.push({ 
                                         xml: this.generateNoteXML({
-                                            isChord: isChord, // <--- PERBAIKAN UTAMA: Tetap true untuk semua potongan agar tag <chord/> tidak hilang saat tie
+                                            isChord: isChord,
                                             isRest: false,
                                             ch,
                                             partId,
@@ -956,9 +988,6 @@ class MidiToMusicXML {
                     });
                 });
 
-                // ============================================================
-                // PERBAIKAN 3: Fill end of measure with rests per staff
-                // ============================================================
                 if (opts.useRestFilling) {
                     const numStaves = channelStaves[ch] || 1;
                     for (let staffIdx = 1; staffIdx <= numStaves; staffIdx++) {
@@ -1066,9 +1095,6 @@ class MidiToMusicXML {
         return xml;
     }
 
-    // ============================================================
-    // PERBAIKAN 4: New helper method to determine staff for a note
-    // ============================================================
     determineStaffForNote(noteCode, ch, channelStaves, opts, channelMinNote, channelMaxNote, channelNotes) {
         let staff = 1;
         if (channelStaves[ch] === 3) {

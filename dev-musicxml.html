@@ -408,7 +408,28 @@
                         if (typeof MusicXMLPDFRenderer !== 'function') {
                             throw new Error('MusicXMLPDFRenderer tidak tersedia.');
                         }
-                        const pdfRenderer = new MusicXMLPDFRenderer();
+
+                        const opt = {
+                            firstSystemGap: 20,
+                            systemSpacing: 48,
+                            marginTop: 50,
+                            marginBottom: 55,
+                            showPageNumbers: true,
+                            autoClef: true,
+                            debugAutoClef: false,
+                            allowAltoClef: true,
+
+                            // Opsi dinamis dari UI
+                            lyricYOffset: 38,
+                            lyricFontSize: 8,
+                            compressSilentMeasure: true,
+                            showTempoChanges: true, // jika renderer mendukung
+                            selectedTracks: null,
+                            lyricChannelId: null,
+                        }
+
+
+                        const pdfRenderer = new MusicXMLPDFRenderer(opt);
                         pdfRenderer.render(xmlText);
 
                         const blob = pdfRenderer.doc.output('blob');
