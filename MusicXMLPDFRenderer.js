@@ -17,10 +17,16 @@ class MusicXMLPDFRenderer {
      * @param {number} [options.systemSpacing=80] Gap between systems.
      */
     constructor(options = {}) {
+        const orientation = options.orientation === 'landscape' ? 'landscape' : 'portrait';
+        const paperSize = options.paperSize ?? options.format ?? 'a4';
+
+        this.orientation = orientation;
+        this.paperSize = paperSize;
+
         this.doc = new window.jspdf.jsPDF({
-            orientation: 'portrait',
+            orientation: orientation,
             unit: 'pt',
-            format: 'a4'
+            format: paperSize
         });
 
         const GLOBAL_SCALE = options.scale ?? 0.8;
@@ -28,6 +34,9 @@ class MusicXMLPDFRenderer {
 
         this.PAGE_WIDTH = this.doc.internal.pageSize.getWidth();
         this.PAGE_HEIGHT = this.doc.internal.pageSize.getHeight();
+
+        this.isLandscape = this.PAGE_WIDTH > this.PAGE_HEIGHT;
+
         const defaultMargin = options.margin ?? 40;
         this.MARGIN = defaultMargin;
 
@@ -48,6 +57,10 @@ class MusicXMLPDFRenderer {
         this.lyricFontSize = (options.lyricFontSize ?? 10) * GLOBAL_SCALE;
 
         this.measuresPerLine = 3;
+
+        this.minMeasureWidth = options.minMeasureWidth ?? 150;
+        this.idealMeasureWidth = options.idealMeasureWidth ?? null;
+        this.maxMeasuresPerLine = options.maxMeasuresPerLine ?? null;
 
         this.engraverColor = [15, 23, 42];
         this.staffLineColor = [71, 85, 105];
@@ -149,11 +162,41 @@ class MusicXMLPDFRenderer {
         });
 
         const hasLyrics = xmlDoc.querySelector("lyric") !== null;
+
+        // Lebar efektif sistem. Angka 60 adalah ruang untuk clef/key/time di awal sistem.
         const availableWidth = this.PAGE_WIDTH - this.marginLeft - this.marginRight - 60;
-        const MIN_MEASURE_WIDTH = 150;
-        const IDEAL_MEASURE_WIDTH = hasLyrics ? 200 : 220;
-        let mpl = Math.floor(availableWidth / IDEAL_MEASURE_WIDTH);
-        mpl = Math.max(1, Math.min(mpl, hasLyrics ? 3 : 4));
+
+        const idealMeasureWidth = this.idealMeasureWidth ?? (hasLyrics ? 200 : 220);
+        const minMeasureWidth = this.minMeasureWidth ?? 150;
+
+        let maxMeasuresPerLine;
+
+        if (this.maxMeasuresPerLine != null) {
+            maxMeasuresPerLine = this.maxMeasuresPerLine;
+        } else {
+            const isLandscape = this.PAGE_WIDTH > this.PAGE_HEIGHT;
+
+            // A4 portrait = 595.28 pt, A4 landscape = 841.89 pt
+            const referenceWidth = isLandscape ? 841.89 : 595.28;
+
+            const baseMax = isLandscape
+                ? (hasLyrics ? 5 : 6)
+                : (hasLyrics ? 3 : 4);
+
+            maxMeasuresPerLine = Math.max(
+                1,
+                Math.round(baseMax * (this.PAGE_WIDTH / referenceWidth))
+            );
+        }
+
+        const idealCount = Math.floor(availableWidth / idealMeasureWidth);
+        const minWidthCount = Math.max(1, Math.floor(availableWidth / minMeasureWidth));
+
+        let mpl = Math.max(
+            1,
+            Math.min(idealCount, maxMeasuresPerLine, minWidthCount)
+        );
+
         this.measuresPerLine = mpl;
 
         let calculatedStaffSystemHeight = 0;
@@ -238,7 +281,7 @@ class MusicXMLPDFRenderer {
         const rightMargin = this.marginRight;
         const systemStartX = this.marginLeft;
         const usableWidth = this.PAGE_WIDTH - leftMargin - rightMargin;
-        const measureWidth = Math.max(220, usableWidth / this.measuresPerLine);
+        const measureWidth = usableWidth / this.measuresPerLine;
 
         let currentX = leftMargin;
 
@@ -1768,8 +1811,8 @@ class MusicXMLPDFRenderer {
         const sx = 1.6 * scale;
         const sy = 1.2 * scale;
 
-        y = isDown ? y + 1.5 * scale : y - 1.5 * scale;
-        x = isDown ? x + 0.42 * scale : x - 0.42 * scale;
+        y = isDown ? y + 1.55 * scale : y - 1.55 * scale;
+        x = isDown ? x - 0.46 * scale : x - 0.48 * scale;
 
         this.drawSVGPath(path, x, y, sx, sy, true);
 

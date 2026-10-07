@@ -297,6 +297,8 @@ Beyond the spacing controls documented above, the SVG constructor also accepts:
 
 | Option | Type | Default | Description |
 |---|---|---|---|
+| `orientation` | string | `'portrait'` | Page orientation: `'portrait'` or `'landscape'`. |
+| `paperSize` | string \| number[] | `'a4'` | Named paper size (e.g. `'a4'`, `'letter'`, `'a3'`) or a custom `[width, height]` array in PDF points. Alias: `format`. |
 | `autoClef` | boolean | `true` | Enable automatic clef selection per staff. |
 | `allowAltoClef` | boolean | `false` | When `autoClef` is on, allow alto clef (C) to be selected for mid-range parts. |
 | `clefGtoFThreshold` | number | `4` | Diatonic index below which a G-clef part is switched to F. |
@@ -304,6 +306,31 @@ Beyond the spacing controls documented above, the SVG constructor also accepts:
 | `debugAutoClef` | boolean | `false` | Log each staff's auto-clef decision (`avgDiatonic`, `min`, `max`, original and chosen clef) to the browser console. |
 | `lyricFontSize` | number | `11` | Font size for lyric text. |
 | `lyricFontFamily` | string | `'sans-serif'` | Generic family applied to lyric text. |
+
+### Paper Size and Orientation
+
+`MusicXMLPDFRenderer` accepts an `orientation` and a `paperSize` at construction time. Both are forwarded directly to `jsPDF`, and the renderer's layout engine (measure width, measures-per-line, margins, page breaks) is computed from the actual page dimensions that jsPDF reports — so every change in paper size or orientation is automatically reflected in the rendered score.
+
+#### `orientation`
+
+| Value | Description |
+|---|---|
+| `'portrait'` | Default. Page height greater than width. |
+| `'landscape'` | Page width greater than height. |
+
+When `paperSize` is given as a `[width, height]` array, `orientation` swaps the two dimensions if needed, so the caller does not have to reorder the array.
+
+#### `paperSize`
+
+Accepts either a **named size** (string, case-insensitive) or a **custom size** as a two-element array in PDF points (`1 pt = 1/72 inch`).
+
+```js
+// Named size
+new MusicXMLPDFRenderer({ paperSize: 'a3', orientation: 'landscape' });
+
+// Custom size, in points
+new MusicXMLPDFRenderer({ paperSize: [1190.55, 841.89] }); // ≈ A3 landscape
+```
 
 ### Auto-Clef Helper Methods
 
