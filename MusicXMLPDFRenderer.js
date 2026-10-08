@@ -11,10 +11,121 @@ class MusicXMLPDFRenderer {
     /**
      * Creates a PDF renderer instance configured for MusicXML layout export.
      *
-     * @param {Object} [options={}] Renderer settings.
-     * @param {number} [options.staffSpacing=80] Vertical spacing between staff lines.
-     * @param {number} [options.partSpacing=80] Gap between musical parts.
-     * @param {number} [options.systemSpacing=80] Gap between systems.
+     * The renderer draws a MusicXML document into a multi-page PDF via
+     * `jsPDF`. All coordinates are in PDF points (1 pt = 1/72 inch). Layout is
+     * adapted automatically to the requested page size and orientation.
+     *
+     * Every option is optional. Values are multiplied by `scale` where the
+     * docs indicate so, allowing a single knob to zoom the whole score.
+     *
+     * @param {Object} [options={}] - Renderer settings.
+     *
+     * ### Page setup
+     * @param {string} [options.orientation='portrait'] - `'portrait'` or
+     *        `'landscape'`. Any other value is coerced to `'portrait'`.
+     * @param {string} [options.paperSize='a4'] - jsPDF format string. Common
+     *        values: `'a4'`, `'letter'`, `'legal'`, `'a3'`. A custom
+     *        `[width, height]` array is also accepted by jsPDF.
+     * @param {string} [options.format] - Alias for `paperSize`. Ignored if
+     *        `paperSize` is provided.
+     * @param {number} [options.scale=0.8] - Global layout multiplier. Applied
+     *        to line spacing, staff spacing, part spacing, system spacing,
+     *        lyric offset, stem length, and lyric font size — *not* to margins
+     *        or measure widths.
+     *
+     * ### Margins
+     * @param {number} [options.margin=40] - Default margin (pt) used for all
+     *        four sides when a specific side is not provided.
+     * @param {number} [options.marginTop]         - Overrides `margin` for the
+     *        top edge of the first page.
+     * @param {number} [options.marginRight]       - Overrides `margin` for the
+     *        right edge.
+     * @param {number} [options.marginBottom]      - Overrides `margin` for the
+     *        bottom edge.
+     * @param {number} [options.marginLeft]        - Overrides `margin` for the
+     *        left edge.
+     * @param {number} [options.marginTopOtherPages] - Top margin for pages
+     *        after the first. Defaults to `marginTop + 12` to leave room for
+     *        the running header to be dropped.
+     *
+     * ### Vertical layout (all multiplied by `scale`)
+     * @param {number} [options.staffSpacing=80] - Gap between staves inside a
+     *        single part (e.g. between piano treble and bass).
+     * @param {number} [options.partSpacing=80]  - Gap between different parts
+     *        (e.g. between piano and vocals).
+     * @param {number} [options.systemSpacing=80] - Gap between successive
+     *        systems (staff rows).
+     * @param {number} [options.lyricYOffset=60] - Distance from the top of the
+     *        staff to the lyric baseline.
+     *
+     *        ⚠ Note the spelling: the property is **`lyricYOffset`**, not
+     *        `lyricYOffset`. This is kept for backward compatibility.
+     *
+     * @param {number} [options.stemLength=24] - Note stem length.
+     *
+     * ### Typography
+     * @param {number} [options.lyricFontSize=10] - Lyric font size (pt).
+     *        Internally converted to `options.lyricFontSize * scale` when the
+     *        renderer draws a lyric.
+     * @param {string} [options.lyricFontFamily='sans-serif'] - `'sans-serif'`,
+     *        `'serif'`, or `'monospace'`. Mapped to jsPDF built-in fonts
+     *        (`helvetica`, `times`, `courier`) via `resolveFontFamily()`.
+     *
+     * ### Measure layout
+     * @param {number} [options.minMeasureWidth=150] - Minimum measure width
+     *        (pt). Prevents measures from being squeezed too tightly.
+     * @param {number|null} [options.idealMeasureWidth=null] - Preferred measure
+     *        width (pt). When `null`, the renderer uses `200` for scores with
+     *        lyrics and `220` for scores without.
+     * @param {number|null} [options.maxMeasuresPerLine=null] - Hard cap on the
+     *        number of measures per system. When `null`, the renderer derives
+     *        a cap based on the page aspect ratio (portrait vs. landscape) and
+     *        whether lyrics are present.
+     * @param {number} [options.firstSystemGap=20] - Extra vertical space (pt)
+     *        between the title block and the first staff system.
+     *
+     * ### Clef selection
+     * @param {boolean} [options.autoClef=true] - When `true`, the renderer
+     *        inspects each staff's pitch distribution and may override the
+     *        clef declared in MusicXML.
+     * @param {boolean} [options.allowAltoClef=false] - When `true`, `C` clef
+     *        (alto / tenor) may be selected by the auto-clef logic. When
+     *        `false`, only G and F clefs are considered.
+     * @param {number} [options.clefMinOverflow=4] - Diatonic threshold. A staff
+     *        keeps its original clef unless the pitch range overflows the
+     *        staff by at least this many diatonic steps. Higher values make
+     *        the renderer more conservative about switching clefs.
+     * @param {boolean} [options.debugAutoClef=false] - Emit diagnostic logs
+     *        while choosing clefs. Useful for tuning `clefMinOverflow`.
+     *
+     * ### Stem direction
+     * @param {number} [options.stemDirectionThreshold=7] - Diatonic threshold
+     *        for automatic stem-direction flipping. Notes on or above this
+     *        index get downward stems. Different from
+     *        `MusicXMLSVGRenderer`, whose default is `null` (clef-based).
+     *
+     * ### Track / channel filtering
+     * @param {number[]|null} [options.selectedChannels=null] - Whitelist of
+     *        MIDI channel indices (0-based). When set together with
+     *        `selectedTrack`, the renderer treats the input as a single-part
+     *        render (see `isSinglePartRender`).
+     * @param {number[]|null} [options.selectedTrack=null] - Whitelist of MIDI
+     *        track indices. Note the **singular** naming — this property is
+     *        distinct from `selectedChannels`.
+     *
+     * ### Silent-measure compression
+     * @param {boolean} [options.compressSilentMeasure=false] - When `true` and
+     *        the score is single-part, consecutive silent measures are merged
+     *        into one multi-measure rest. Multi-part scores are never
+     *        compressed (see `isSinglePartRender`).
+     *
+     * ### Page numbers
+     * @param {boolean} [options.showPageNumbers=true] - Toggle the page-number
+     *        footer. Rendered as `"N of M"` in the bottom-right corner.
+     * @param {number[]} [options.pageNumberColor=[100,116,139]] - RGB color
+     *        array for the footer text.
+     * @param {number} [options.pageNumberMarginBottom=18] - Distance (pt) from
+     *        the bottom edge of the page to the footer baseline.
      */
     constructor(options = {}) {
         const orientation = options.orientation === 'landscape' ? 'landscape' : 'portrait';
@@ -52,7 +163,7 @@ class MusicXMLPDFRenderer {
         this.staffSpacing = this.baseStaffSpacing;
         this.partSpacing = (options.partSpacing ?? 80) * GLOBAL_SCALE;
         this.systemSpacing = (options.systemSpacing ?? 80) * GLOBAL_SCALE;
-        this.liricYOffset = (options.liricYOffset ?? 60) * GLOBAL_SCALE;
+        this.lyricYOffset = (options.lyricYOffset ?? 60) * GLOBAL_SCALE;
         this.stemLength = (options.stemLength ?? 24) * GLOBAL_SCALE;
         this.lyricFontSize = (options.lyricFontSize ?? 10) * GLOBAL_SCALE;
 
@@ -73,7 +184,6 @@ class MusicXMLPDFRenderer {
         this.doc.setFont('helvetica', 'normal');
         this.FONT_SANS_SERIF = 'helvetica';
         this.FONT_SERIF = 'times';
-        this.lyricFontSize = options.lyricFontSize ?? 10;
         this.lyricFontFamily = options.lyricFontFamily ?? 'sans-serif';
 
         this.stemLength = options.stemLength ?? 24;
@@ -211,7 +321,7 @@ class MusicXMLPDFRenderer {
         }
         if (totalSystemStaves === 0) calculatedStaffSystemHeight = staffHeight;
 
-        const staffBottomExtra = Math.max(0, this.liricYOffset - (4 * this.lineSpacing) + 6);
+        const staffBottomExtra = Math.max(0, this.lyricYOffset - (4 * this.lineSpacing) + 6);
         const spacingForThisSystem = hasLyrics
             ? (this.lyricsSystemSpacing ?? this.systemSpacing)
             : this.systemSpacing;
@@ -321,9 +431,6 @@ class MusicXMLPDFRenderer {
                 if (!attrNode) return;
 
                 // Divisions: hanya update kalau elemen <divisions> benar-benar ada.
-                // Kode sebelumnya memakai fallback "4" yang menimpa divisions yang
-                // sudah di-inherit dari measure sebelumnya, sehingga 32nd note/rest
-                // (yang butuh divisions > 4) salah dirender.
                 const divisionsEl = attrNode.querySelector("divisions");
                 if (divisionsEl) {
                     const divVal = parseInt(divisionsEl.textContent, 10);
@@ -446,60 +553,7 @@ class MusicXMLPDFRenderer {
                 }
                 this.drawText(systemStartX, currentY - 14, systemLabel, 10, this.subtitleColor, "left", true, this.FONT_SANS_SERIF);
                 
-                const realMeasureNumber = renderMeasure ? renderMeasure.number : measureIdx + 1;
-                const realMeasureNode = partMeasureMap[0].get(realMeasureNumber);
                 
-                if (realMeasureNode) {
-                    const metronome = realMeasureNode.querySelector("metronome");
-                    if (metronome) {
-                        const perMinute = metronome.querySelector("per-minute")?.textContent;
-                        const beatUnit  = metronome.querySelector("beat-unit")?.textContent || "quarter";
-                        
-                        if (perMinute) {
-                            const tempoY = currentY - 6;
-                            const noteX  = leftMargin + 8;
-                            const noteY  = tempoY - 1.5;
-
-                            const rx = 3.4;
-                            const ry = 2.2;
-                            const stemX = noteX + rx * 0.85;
-                            const stemTopY = noteY - 13;
-
-                            if (beatUnit === "half") {
-                                this.doc.setDrawColor(...this.engraverColor);
-                                this.doc.setFillColor(...this.engraverColor);
-                                this.doc.setLineWidth(0.9);
-                                this.drawSVGEllipse(noteX, noteY, rx - 0.4, ry - 0.4, false, 'solid', -20);
-
-                                this.doc.setLineWidth(1.0);
-                                this.doc.line(stemX, noteY - 0.5, stemX, stemTopY);
-                            } else {
-                                this.doc.setFillColor(...this.engraverColor);
-                                this.doc.setDrawColor(...this.engraverColor);
-                                this.drawSVGEllipse(noteX, noteY, rx, ry, true, 'none', -20);
-
-                                this.doc.setLineWidth(1.0);
-                                this.doc.line(stemX, noteY - 0.5, stemX, stemTopY);
-
-                                if (beatUnit === "eighth") {
-                                    this.doc.line(stemX, stemTopY, stemX + 6, stemTopY + 6);
-                                }
-                            }
-
-                            const textX = stemX + 5;
-                            this.drawText(
-                                textX,
-                                tempoY,
-                                `= ${perMinute}`,
-                                11,
-                                this.engraverColor,
-                                "left",
-                                true,
-                                this.FONT_SERIF
-                            );
-                        }
-                    }
-                }
             }
 
             const isLastMeasureInScore = (measureIdx === totalMeasures - 1);
@@ -520,6 +574,122 @@ class MusicXMLPDFRenderer {
                 }
                 rightPrevPart = pInfo.partIndex;
             }
+
+            const tempoMeasureNumber = renderMeasure ? renderMeasure.number : (measureIdx + 1);
+            const tempoMeasureNode = partMeasureMap[0].get(tempoMeasureNumber);
+
+            if (tempoMeasureNode) {
+                // --- Baca SEMUA <direction> yang memuat tempo ---
+                const tempoEntries = [];
+                tempoMeasureNode.querySelectorAll("direction").forEach(dir => {
+                    let bpm = null;
+                    let beatUnit = 'quarter';
+                    let dots = 0;
+
+                    const metroNode = dir.querySelector("metronome");
+                    if (metroNode) {
+                        const perMin = metroNode.querySelector("per-minute");
+                        if (perMin) bpm = parseFloat(perMin.textContent);
+                        const bu = metroNode.querySelector("beat-unit");
+                        if (bu) beatUnit = bu.textContent;
+                        dots = metroNode.querySelectorAll("beat-unit-dot").length;
+                    } else {
+                        const soundNode = dir.querySelector("sound[tempo]");
+                        if (soundNode) bpm = parseFloat(soundNode.getAttribute("tempo"));
+                    }
+
+                    if (bpm === null || isNaN(bpm)) return;
+
+                    // --- Baca <offset> kalau ada (satuan divisions) ---
+                    let offsetDiv = 0;
+                    const offsetNode = dir.querySelector("offset");
+                    if (offsetNode) {
+                        const v = parseFloat(offsetNode.textContent);
+                        if (Number.isFinite(v)) offsetDiv = v;
+                    }
+
+                    tempoEntries.push({ bpm, beatUnit, dots, offsetDiv });
+                });
+
+                if (tempoEntries.length > 0) {
+                    // Urutkan berdasarkan offset
+                    tempoEntries.sort((a, b) => a.offsetDiv - b.offsetDiv);
+
+                    // Panjang measure dalam divisions (untuk konversi offset → X)
+                    const divisionsForTempo  = staffState[1] ? staffState[1].divisions : 4;
+                    const beatsForTempo      = staffState[1] ? staffState[1].beats      : 4;
+                    const beatTypeForTempo   = staffState[1] ? staffState[1].beatType   : 4;
+                    const measureDivsForTempo =
+                        (beatsForTempo * 4 / beatTypeForTempo) * divisionsForTempo;
+
+                    const gs = this.GLOBAL_SCALE ?? 1.0;
+                    const tempoY = currentY - 6;
+                    const MIN_GAP = 8 * gs;
+
+                    let lastRightX = -Infinity;
+
+                    tempoEntries.forEach(t => {
+                        // Posisi X = kiri measure + offset
+                        const offsetRatio = (measureDivsForTempo > 0)
+                            ? (t.offsetDiv / measureDivsForTempo)
+                            : 0;
+                        let tempoX = currentX + offsetRatio * measureWidth + 4 * gs;
+
+                        // Estimasi lebar tempo mark agar tidak tumpang tindih
+                        const bpmStr = String(Math.round(t.bpm));
+                        const estimatedWidth = (12 + bpmStr.length * 6) * gs;
+                        if (tempoX < lastRightX + MIN_GAP) {
+                            tempoX = lastRightX + MIN_GAP;
+                        }
+
+                        // ---- Gambar simbol not sesuai beat-unit ----
+                        const noteX = tempoX;
+                        const noteY = tempoY - 1.5;
+                        const rx = 3.4 * gs;
+                        const ry = 2.2 * gs;
+                        const stemX = noteX + rx * 0.85;
+                        const stemTopY = noteY - 13 * gs;
+
+                        if (t.beatUnit === "half") {
+                            this.doc.setDrawColor(...this.engraverColor);
+                            this.doc.setFillColor(...this.engraverColor);
+                            this.doc.setLineWidth(0.9 * gs);
+                            this.drawSVGEllipse(noteX, noteY, rx - 0.4, ry - 0.4, false, 'solid', -20);
+                            this.doc.setLineWidth(1.0 * gs);
+                            this.doc.line(stemX, noteY - 0.5, stemX, stemTopY);
+                        } else if (t.beatUnit === "eighth") {
+                            this.doc.setFillColor(...this.engraverColor);
+                            this.doc.setDrawColor(...this.engraverColor);
+                            this.drawSVGEllipse(noteX, noteY, rx, ry, true, 'none', -20);
+                            this.doc.setLineWidth(1.0 * gs);
+                            this.doc.line(stemX, noteY - 0.5, stemX, stemTopY);
+                            this.doc.line(stemX, stemTopY, stemX + 6 * gs, stemTopY + 6 * gs);
+                        } else {
+                            // Default quarter
+                            this.doc.setFillColor(...this.engraverColor);
+                            this.doc.setDrawColor(...this.engraverColor);
+                            this.drawSVGEllipse(noteX, noteY, rx, ry, true, 'none', -20);
+                            this.doc.setLineWidth(1.0 * gs);
+                            this.doc.line(stemX, noteY - 0.5, stemX, stemTopY);
+                        }
+
+                        // ---- Gambar teks BPM ----
+                        this.drawText(
+                            stemX + 5 * gs,
+                            tempoY,
+                            `= ${Math.round(t.bpm)}`,
+                            11,
+                            this.engraverColor,
+                            "left",
+                            true,
+                            this.FONT_SERIF
+                        );
+
+                        lastRightX = tempoX + estimatedWidth;
+                    });
+                }
+            }
+            
 
             let currentStaffYOffset = 0;
             let previousPartIndex = -1;
@@ -574,7 +744,9 @@ class MusicXMLPDFRenderer {
                         const tag = child.tagName;
                         if (tag === "attributes") {
                             const div = parseInt(child.querySelector("divisions")?.textContent || "0", 10);
-                            if (div > 0) currentDivisions = div;
+                            if (div > 0) {
+                                currentDivisions = div;
+                            }
                         } else if (tag === "note") {
                             const isChord = child.querySelector("chord") !== null;
                             if (!isChord) {
@@ -966,7 +1138,6 @@ class MusicXMLPDFRenderer {
             for (let s = 0; s < pInfo.numStaves; s++) {
                 const staffId = pInfo.startStaffId + s;
                 const localStaff = s + 1;
-
                 let minD = Infinity;
                 let maxD = -Infinity;
                 let totalWeighted = 0;
@@ -1424,7 +1595,7 @@ class MusicXMLPDFRenderer {
                 }
             }
             if (restNote.lyric) {
-                this.drawText(x, y + this.liricYOffset, restNote.lyric, this.lyricFontSize, this.engraverColor, "center", false, this.resolveFontFamily(this.lyricFontFamily));
+                this.drawText(x, y + this.lyricYOffset, restNote.lyric, this.lyricFontSize, this.engraverColor, "center", false, this.resolveFontFamily(this.lyricFontFamily));
             }
             return null;
         }
@@ -1475,7 +1646,7 @@ class MusicXMLPDFRenderer {
             }
 
             if (note.lyric) {
-                this.drawText(x, y + this.liricYOffset, note.lyric, this.lyricFontSize, this.engraverColor, "center", false, this.resolveFontFamily(this.lyricFontFamily));
+                this.drawText(x, y + this.lyricYOffset, note.lyric, this.lyricFontSize, this.engraverColor, "center", false, this.resolveFontFamily(this.lyricFontFamily));
             }
 
             const { tieStart, tieStop } = note;
@@ -2127,7 +2298,6 @@ class MusicXMLPDFRenderer {
      */
     drawText(x, y, text, size, color, align = "left", isBold = false, font = this.FONT_SANS_SERIF, rotation = 0) {
         this.doc.setFont(font, isBold ? 'bold' : 'normal');
-        //this.doc.setFontSize(size);
         this.doc.setFontSize(size * this.GLOBAL_SCALE);
         this.doc.setTextColor(...color);
         this.doc.text(text || "", x, y, { align: align, angle: rotation });
@@ -2740,7 +2910,7 @@ class MusicXMLPDFRenderer {
      * @returns {number} Duration in ticks, or zero for an unknown note type.
      */
     static getDurationFromType(typeName, dots, divisions) {
-        const type = MusicXMLPDFRenderer.NOTE_TYPE_VALUES.find(t => t.name === typeName);
+        const type = this.NOTE_TYPE_VALUES.find(t => t.name === typeName);
         if (!type) return 0;
         
         const baseValue = type.val; 

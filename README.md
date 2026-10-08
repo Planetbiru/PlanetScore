@@ -6,27 +6,6 @@ PlanetScore is a browser-based MIDI to sheet music renderer. It parses a MIDI fi
 
 The project runs as a static web application. No build process or server-side component is required.
 
-## Why it Made?
-
-PlanetScore was created to solve several practical challenges in digital score rendering:
-
-### Main Reasons
-1. **Direct PDF and SVG rendering from MIDI**  
-   The primary goal is to take raw MIDI files and produce sheet music in both interactive SVG and printable PDF formats, without relying on heavy external software.
-
-2. **Lightweight MusicXML intermediary**  
-   MusicXML is used only as a structural bridge for notation. It contains just the elements needed for score display (tempo, key, lyrics, staves), not playback data, which keeps the conversion pipeline lean and efficient.
-
-3. **Client‑side processing**  
-   Everything runs in the browser. This avoids server load, scales easily, and makes the application usable even on modest hosting setups without specialized backend services.
-
-### Additional Reasons
-- **Selective track rendering**: Users can choose which tracks or channels to convert, reducing resource usage and making the renderer faster.  
-- **Real‑time interactivity**: The SVG renderer supports playhead movement and note highlighting, enabling synchronized playback experiences like karaoke or guided practice.  
-- **Accessibility and portability**: As a static web app, it requires no installation or build process — just open `index.html` in a modern browser.  
-- **Flexibility for learning and collaboration**: Features like lyric gating, clef‑aware notation, and comment rendering make it suitable for education, rehearsal, and collaborative score editing.  
-- **Cross‑platform simplicity**: Runs on any modern browser (Chrome, Edge, Firefox, Safari) with ES6 support, making it widely accessible.
-
 ## Features
 
 - Parse Standard MIDI files (`.mid` and `.midi`) in the browser.
@@ -35,14 +14,18 @@ PlanetScore was created to solve several practical challenges in digital score r
 - Generate a multi-page PDF score using jsPDF.
 - Select one or more MIDI tracks or channels.
 - Preserve tempo, time signature, key signature, and lyric metadata.
-- **Support common time signatures, including 3/4 and 4/4, with automatic note type and dot calculation based on the time signature.**
-- Automatically split wide note ranges into multiple staves, with a **minimum-range floor** to protect narrow melodic parts (such as vocals).
+- Split wide note ranges into multiple staves when `autoSplit` is enabled, with a **minimum-range floor** to protect narrow melodic parts.
+- Detect overlapping voices and split them onto separate staves by default; this can be disabled with `autoSplitOnOverlap: false`.
 - Gate lyrics to the correct channel so they are only rendered when the melody channel is present.
 - Support percussion notation on MIDI channel 10.
+- Optionally transpose bass-program notes up an octave during MIDI-to-MusicXML conversion.
 - Fill rhythmic gaps with rests and split complex durations into tied notes.
 - Optionally snap note positions and durations to a musical grid.
 - Handle clef-specific notation correctly (treble, bass, and alto clefs) for both ledger lines and key signatures.
-- Separate **playback mute** (audio-only) from **score mute** (visual filtering).
+- Select clefs based on pitch-range overflow, with different auto-clef controls in the SVG and PDF renderers.
+- Synchronize the SVG score with playback using a playhead, active-note highlighting, and optional auto-scroll.
+- Support an SVG comment overlay with callbacks for host-managed persistence.
+- Separate **playback mute** (audio-only) from **score filtering** (`muteChannels`).
 
 ## Getting Started
 
@@ -144,24 +127,31 @@ Supported conversion options include:
 | `divisions` | `number` | `4` | Divisions per quarter note in the generated MusicXML. |
 | `selectedChannels` | `number[]` | `null` | MIDI channels to render. If omitted, all channels are rendered. |
 | `selectedTracks` | `number \| number[]` | `null` | Track index (or indices) to render (legacy). Resolves to that track's channels. Meta tracks are always preserved. |
+| `normalize` | `boolean` | `true` | Shift event timing so the earliest note starts at tick 0. |
+| `forceUpdateEvents` | `boolean` | `true` | Move supported setup events that precede a channel's first note to tick 0. |
 | `lyricChannelId` | `number \| null` | `null` | 1-indexed MIDI channel that carries the lyrics (e.g. `4` = channel index 3). If the channel is absent from the rendered score, lyrics are disabled entirely. |
 | `autoSplit` | `boolean` | `false` | Automatically split channels with a wide note range. |
 | `splitThreshold` | `number` | `24` | Primary threshold (semitones) for automatic split. Lowered to `14` automatically for piano (program 0–7). |
 | `minSplitRange` | `number` | `30` | Hard floor (semitones). Parts with a smaller range are **never** auto-split, regardless of `splitThreshold`. Set to `0` to disable the floor. |
-| `splitPoint` | `number \| null` | `null` | MIDI note used for a two-staff split. Bypasses both thresholds. |
-| `splitPoints` | `number[] \| null` | `null` | Two MIDI notes used for a three-staff split (e.g. `[71, 59]`). Bypasses both thresholds. |
+| `splitPoint` | `number \| null` | `null` | MIDI note used to force a two-staff split on the first non-drum channel. |
+| `splitPoints` | `number[] \| null` | `null` | Two MIDI notes used to force a three-staff split on the first non-drum channel (e.g. `[71, 59]`). Takes precedence over `splitPoint`. |
+| `autoSplitOnOverlap` | `boolean` | `true` | Split a channel when multiple simultaneous voices are detected. Set to `false` to disable. |
+| `overlapToleranceRatio` | `number` | `1/32` | Overlap tolerance as a fraction of PPQ; small overlaps within this window are treated as legato. |
 | `muteChannels` | `number[]` | `[]` | Channels excluded from the rendered score. |
 | `transpose` | `number` | `0` | Semitone offset. Drum channel (9) is never transposed. |
+| `transposeBass` | `boolean` | `false` | Add 12 semitones to notes played with programs listed in `transposeBassInstruments`. |
+| `transposeBassInstruments` | `number[]` | `[32, 33, 34, 35, 36, 37, 38, 39]` | GM program numbers (0-indexed) recognized for the additional bass octave. |
+| `useRestFilling` | `boolean` | `true` | Fill gaps with rests to complete each measure rhythmically. |
 | `snapPosition` | `number \| null` | `null` | Snap note onsets to note fractions, such as `0.125` for eighth notes. |
 | `snapDuration` | `number \| null` | `null` | Snap note durations to note fractions. |
 
-Meta-only tracks are retained during conversion so that lyrics, tempo, and time-signature information remains available in the generated score.
+The converter defaults to `normalize: true` and `forceUpdateEvents: true`, unlike direct calls to `MidiParser.parse()`, which default both options to `false`. Meta-only tracks are retained during track selection so tempo and time-signature information remains available; lyric rendering still depends on a lyric channel being present in the score.
 
-The converter reads the time signature from the MIDI file and uses it to determine note types and dots. For example, in **3/4** and **4/4** time, the note duration is interpreted relative to the beat value (quarter note), and dotted notes are generated when the duration matches a dotted value (e.g., dotted half in 3/4, dotted quarter in 4/4). This ensures that the rendered notation is rhythmically correct for these common time signatures.
+Bass transposition is program-aware and evaluated per note using the active Program Change at that note's tick. MIDI channel 10 (index 9) is never transposed. The SVG and PDF renderers do not apply instrument-specific transposition; see [manual.md](manual.md#bass-instrument-transposition) for details.
 
 #### `splitThreshold` vs `minSplitRange`
 
-Two parameters control automatic staff splitting. Both conditions must pass for a part to be auto-split:
+These parameters control range-based splitting when `autoSplit` is enabled. Both conditions must pass for range-based splitting:
 
 1. `range >= minSplitRange` — **hard floor**. Parts below this are never auto-split.
 2. `range >= splitThreshold` — **primary threshold**. Adjusted per instrument (`14` for piano, otherwise the user value).
@@ -183,7 +173,7 @@ Two parameters control automatic staff splitting. Both conditions must pass for 
 | Organ large | 16 | 50 | 3 staves |
 | Drum kit | — | — | 1 staff (always) |
 
-Setting `minSplitRange: 0` restores the legacy behavior (only `splitThreshold` matters).
+Overlap-based splitting is independent of these range thresholds and remains enabled unless `autoSplitOnOverlap: false`. Setting `minSplitRange: 0` removes the floor only for range-based splitting.
 
 ### Render SVG
 
@@ -198,7 +188,9 @@ const renderer = new MusicXMLSVGRenderer('score-container', {
 renderer.render(musicXML);
 ```
 
-The SVG renderer supports responsive layouts, beams, ties, slurs, articulations, grand-staff braces, and an interactive playhead. Use `updatePlayhead()` to move the playhead and optionally scroll the score during playback.
+The SVG renderer supports responsive layouts, beams, ties, slurs, articulations, grand-staff braces, an interactive playhead, active-note highlighting, and comments. Use `updatePlayhead()` to move the playhead and optionally scroll the score during playback; use `highlightActiveNotes()` to highlight currently sounding notes.
+
+SVG auto-clef preserves the MusicXML clef unless the pitch range overflows the staff by at least four diatonic steps, then switches toward the greater overflow. It does not automatically choose alto clef. The PDF renderer uses configurable `clefMinOverflow` and can consider alto clef when `allowAltoClef: true`.
 
 #### Clef-Aware Notation
 
@@ -215,13 +207,13 @@ pdfRenderer.render(musicXML);
 pdfRenderer.save('my-score.pdf');
 ```
 
-The PDF renderer creates a vector-based, multi-page score. It requires the jsPDF browser library, which is loaded from CDN by `index.html`. Clef-aware ledger lines and key signatures are shared with the SVG renderer.
+The PDF renderer creates a vector-based, multi-page score. It requires the jsPDF browser library, which is loaded from CDN by `index.html`. Clef-aware ledger lines and key signatures are shared with the SVG renderer. Configure page size and orientation in its constructor; `save()` downloads the rendered score.
 
 ### Playback Mute vs. Score Mute
 
 The `muteChannels` option affects the **rendered score** — notes from the listed channels are removed from the MusicXML.
 
-Playback mute is applied separately at the audio layer (via the `TimidityPlayer` integration) and does not affect the rendered score. In the vocal training app, playback mute is applied with `applyMuteToPlayer()`, while the score always renders all channels. This lets a user silence one part during practice without hiding it from view.
+Playback mute is applied separately at the audio layer (via the `TimidityPlayer` integration) and does not affect which notes are in the rendered score. In the vocal training app, playback mute is applied with `applyMuteToPlayer()`. A part can be silenced during practice while remaining visible; use score filters such as `selectedChannels` or `muteChannels` when the notation itself should change.
 
 ## Project Structure
 

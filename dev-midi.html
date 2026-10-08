@@ -416,17 +416,18 @@
             const converter = new MidiToMusicXML();
             const title = filename.replace(/\.(mid|midi)$/i, '');
             return converter.convert(arrayBuffer, {
-                title:     'Lagu 0016',
+                title:     'Ayat Aya(2)',
                 creator:   'MIDI Preview',
                 autoSplit: false,
-                selectedTracks: [9],
+                selectedTracks: [6],
                 divisions: 512,
                 transposeBass: true,
                 lyricChannelId: 4,
 
                 // ⬇️ Kuantisasi ke grid 1/16 not
                 snapPosition: 0.0625,   // 1/16
-                snapDuration: 0.0625    // 1/16
+                snapDuration: 0.0625,   // 1/16
+                autoSplitOnOverlap: true,
             });
         }
 

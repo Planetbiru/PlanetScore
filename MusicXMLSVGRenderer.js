@@ -45,13 +45,110 @@
 class MusicXMLSVGRenderer {
     /**
      * Initializes the MusicXML SVG Renderer.
-     * @param {string|HTMLElement} containerId - The ID of the container element or the element itself.
-     * @param {Object} [options={}] - Configuration options for the renderer.
-     * @param {number} [options.staffSpacing=90] - The vertical gap between staves within a single part (e.g., piano right/left hand).
-     * @param {number} [options.partSpacing=65] - The additional vertical gap between different parts (e.g., between piano and vocals).
-     * @param {number} [options.systemSpacing=80] - The vertical gap between musical systems.
-     * @param {boolean} [options.forceMobile=false] - Force mobile rendering mode, ignoring viewport size.
-     * @param {boolean} [options.autoDetectMobile=true] - Automatically detect mobile viewport to adjust layout.
+     *
+     * The renderer draws a MusicXML score into a single inline `<svg>` element
+     * inside the given container. It supports multi-part / multi-staff layouts,
+     * monochrome engraver styling by default, optional pitch color-coding,
+     * dynamic clef selection, and a self-contained comment overlay system.
+     *
+     * All options are optional; the defaults produce a monochrome score with
+     * autodetected mobile layout and no comments.
+     *
+     * @param {string|HTMLElement} containerId - The ID of the container element,
+     *        or the container element itself. The renderer clears this element
+     *        and appends a fresh `<svg>` on each call to {@link render}.
+     *
+     * @param {Object} [options={}] - Configuration options.
+     *
+     * ### Layout & viewport
+     * @param {number}  [options.staffSpacing=80]   - Vertical gap (SVG units)
+     *        between staves of the same part (e.g. piano treble / bass).
+     * @param {number}  [options.partSpacing=80]    - Extra vertical gap
+     *        between different parts (e.g. piano vs. vocals).
+     * @param {number}  [options.systemSpacing=80]  - Vertical gap between
+     *        successive systems (staff rows).
+     * @param {boolean} [options.forceMobile=false] - Force mobile layout
+     *        (single measure per system, smaller paper width) regardless of
+     *        viewport size. Useful for embedded previews.
+     * @param {boolean} [options.autoDetectMobile=true] - When `true`, the
+     *        renderer picks mobile layout automatically if the viewport width
+     *        is below ~360 px or `forceMobile` is set. When `false`, layout is
+     *        chosen solely from `forceMobile`.
+     *
+     * ### Typography & engraving
+     * @param {string}  [options.paperBg="#ffffff"] - Background color of the
+     *        generated `<svg>`. Set to `"transparent"` to inherit from CSS.
+     * @param {number}  [options.lyricFontSize=11]  - Base lyric font size (px).
+     * @param {string}  [options.lyricFontFamily="sans-serif"] - CSS font-family
+     *        for lyric text.
+     * @param {number|null} [options.stemDirectionThreshold=null] - Override the
+     *        automatic stem-direction rule. The value is a diatonic step
+     *        threshold (see table below). When `null`, the renderer uses a
+     *        clef-specific default.
+     *
+     *        | Clef   | Default | Meaning                                     |
+     *        |--------|---------|---------------------------------------------|
+     *        | Treble | 4 (G4)  | stems flip down once the average reaches G4 |
+     *        | Alto   | 0 (C4)  | staff center                                |
+     *        | Bass   | -4 (F3) | one step below the bass staff center        |
+     *
+     *        Lower values flip stems to `down` more eagerly.
+     *
+     * ### Automatic clef selection
+     * @param {boolean} [options.autoClef=true]     - When `true`, pick the clef
+     *        (G / F / C) for each staff based on the pitch distribution
+     *        instead of always using the one declared in MusicXML.
+     * @param {boolean} [options.allowAltoClef=false] - If `true`, `C` clef
+     *        (alto / tenor) may be selected. Default `false` restricts the
+     *        auto-clef to G and F only.
+     * @param {number}  [options.clefGtoFThreshold=4]  - Diatonic threshold used
+     *        when deciding whether a treble staff should fall back to bass.
+     * @param {number}  [options.clefFtoGThreshold=-4] - Diatonic threshold used
+     *        when deciding whether a bass staff should be raised to treble.
+     * @param {boolean} [options.debugAutoClef=false]  - Emit diagnostic logs
+     *        during clef selection. Useful when tuning thresholds.
+     *
+     * ### Comment overlay
+     * @param {Array<Object>} [options.comments=[]] - Initial list of comment
+     *        objects. Each comment should provide at least:
+     *          - `tick`         {number}  MusicXML tick the comment is anchored to.
+     *          - `comment`      {string}  Comment body (used for snippet + tooltip).
+     *          - `color`        {string}  Optional CSS color; defaults to `#dc2626`.
+     *          - `author`       {string|number} Owner ID for permission checks.
+     *          - `midiTrackId`  {number|null} Target track, or `-1` for global.
+     *          - `id` | `track_comment_id`  Unique identifier.
+     * @param {boolean} [options.commentsVisible=true] - Whether the overlay is
+     *        visible on first render.
+     * @param {boolean} [options.commentMode=false] - Whether comment interaction
+     *        (drag, click-to-create, click-to-edit) is enabled.
+     * @param {string|number|null} [options.commentAuthor=null] - ID of the
+     *        currently logged-in user. Used by {@link isMyComment} and by the
+     *        default `canEdit` policy.
+     * @param {Set<number>|number|null} [options.commentTrackFilter=null] -
+     *        Restrict visible comments to one or more MIDI track IDs.
+     * @param {string|number|null} [options.commentUserFilter=null] - Restrict
+     *        visible comments to a single author ID.
+     * @param {Function} [options.onCreateRequest] - Callback fired when the
+     *        user clicks empty space in comment mode to create a new comment.
+     *        Signature: `(tick, midiTrackId, clientX, clientY) => void`.
+     * @param {Function} [options.onEditRequest]   - Callback fired when the user
+     *        clicks an existing comment to edit it.
+     *        Signature: `(comment, event) => void`.
+     * @param {Function} [options.onMoveRequest]   - Callback fired after the user
+     *        finishes dragging a comment. The new tick and inferred MIDI track
+     *        are provided.
+     *        Signature: `(comment, newTick, newMidiTrackId) => void`.
+     * @param {Function} [options.onError]         - Generic error callback.
+     *        Signature: `(error, action, comment?) => void`.
+     * @param {Function} [options.canEdit]         - Custom permission policy.
+     *        Signature: `(comment, currentAuthor) => boolean`.
+     *        When omitted, only the author can edit their own comment.
+     *
+     * ### Track mapping
+     * @param {Array<number|null>|null} [options.midiTrackIdByPartIndex=null] -
+     *        Maps MusicXML part index → MIDI track ID. Used to attach comments
+     *        to the correct staff and to snap comments onto a target track
+     *        during drag-and-drop.
      */
     constructor(containerId, options = {}) {
         this.container = typeof containerId === 'string' ? document.getElementById(containerId) : containerId;
@@ -101,7 +198,7 @@ class MusicXMLSVGRenderer {
         this.baseRowSpacingSingle = 150;
         this.baseRowSpacingDouble = 220;
         this.measuresPerLine = 3;
-        this.liricYOffset = 80;
+        this.lyricYOffset = 80;
         this.lyricFontSize = options.lyricFontSize ?? 11;
         this.lyricFontFamily = options.lyricFontFamily ?? 'sans-serif';
 
@@ -320,10 +417,10 @@ class MusicXMLSVGRenderer {
 
         // FIX: Correctly calculate rowSpacing using the configurable systemSpacing.
         // Hitung seberapa jauh lirik turun di bawah garis staff terbawah.
-        // Staff memiliki tinggi 4 * lineSpacing. Lirik digambar pada this.liricYOffset dari atas staff.
-        // Jadi, overflow di bawah staff adalah: this.liricYOffset - (4 * this.lineSpacing).
+        // Staff memiliki tinggi 4 * lineSpacing. Lirik digambar pada this.lyricYOffset dari atas staff.
+        // Jadi, overflow di bawah staff adalah: this.lyricYOffset - (4 * this.lineSpacing).
         // Tambahkan margin kecil (misal 10px) agar tidak terlalu mepet dengan sistem berikutnya.
-        const lyricBottomOverflow = Math.max(0, this.liricYOffset - (4 * this.lineSpacing));
+        const lyricBottomOverflow = Math.max(0, this.lyricYOffset - (4 * this.lineSpacing));
         const lyricPadding = hasLyrics ? (lyricBottomOverflow + 10) * scale : 0;
         
         this.rowSpacing = calculatedStaffSystemHeight + lyricPadding + this.systemSpacing * scale;
@@ -398,7 +495,7 @@ class MusicXMLSVGRenderer {
             partDetails[pInfo.partIndex] = { name, abbr };
         });
 
-                // System Layout Metrics
+        // System Layout Metrics
         currentY += 80 * scale; // Add more space before the first staff system to prevent overlap
         const leftMargin = 85 * scale;
         const rightMargin = 40 * scale;
@@ -597,20 +694,91 @@ class MusicXMLSVGRenderer {
                 this.drawText(systemStartX, currentY - 14 * scale, `${displayMeasureNumber}`, `${Math.round(10 * scale)}px`, "#64748b", "start", true, "'Inter', sans-serif");
             }
 
-            // Tempo Markings from primary measure
+            // Tempo Markings from primary measure (mendukung MULTIPLE tempo per measure)
             const firstM = partMeasureMap[0].get(measureIdx + firstMeasureNumber);
             if (firstM) {
-                let tempoBpm = null;
-                const metroNode = firstM.querySelector("metronome per-minute");
-                if (metroNode) {
-                    tempoBpm = metroNode.textContent;
-                } else {
-                    const soundNode = firstM.querySelector("sound[tempo]");
-                    if (soundNode) tempoBpm = soundNode.getAttribute("tempo");
-                }
-                if (tempoBpm && !isNaN(parseFloat(tempoBpm))) {
-                    const bpmText = `♩ = ${Math.round(parseFloat(tempoBpm))}`;
-                    this.drawText(currentX, currentY - 12 * scale, bpmText, `${Math.round(11 * scale)}px`, this.engraverColor, "start", true);
+                // ---- Baca semua <direction> yang membawa tempo di measure ini ----
+                const tempoEntries = [];
+                firstM.querySelectorAll("direction").forEach(dir => {
+                    let bpm = null;
+                    let beatUnit = 'quarter';
+                    let dots = 0;
+
+                    const metroNode = dir.querySelector("metronome");
+                    if (metroNode) {
+                        const perMin = metroNode.querySelector("per-minute");
+                        if (perMin) bpm = parseFloat(perMin.textContent);
+                        const bu = metroNode.querySelector("beat-unit");
+                        if (bu) beatUnit = bu.textContent;
+                        dots = metroNode.querySelectorAll("beat-unit-dot").length;
+                    } else {
+                        const soundNode = dir.querySelector("sound[tempo]");
+                        if (soundNode) bpm = parseFloat(soundNode.getAttribute("tempo"));
+                    }
+
+                    if (bpm === null || isNaN(bpm)) return;
+
+                    // ---- Baca <offset> kalau ada (satuan divisions, relatif ke measure start) ----
+                    let offsetDiv = 0;
+                    const offsetNode = dir.querySelector("offset");
+                    if (offsetNode) {
+                        const v = parseFloat(offsetNode.textContent);
+                        if (Number.isFinite(v)) offsetDiv = v;
+                    }
+
+                    tempoEntries.push({ bpm, beatUnit, dots, offsetDiv });
+                });
+
+                if (tempoEntries.length > 0) {
+                    // Urutkan berdasarkan offset (paling awal di kiri)
+                    tempoEntries.sort((a, b) => a.offsetDiv - b.offsetDiv);
+
+                    // Hitung panjang measure dalam divisions untuk konversi offset → X
+                    const divisionsForTempo = parseInt(
+                        firstM.querySelector("attributes divisions")?.textContent || "4", 10
+                    );
+                    const beatsForTempo = parseInt(
+                        firstM.querySelector("attributes time beats")?.textContent || "4", 10
+                    );
+                    const beatTypeForTempo = parseInt(
+                        firstM.querySelector("attributes time beat-type")?.textContent || "4", 10
+                    );
+                    const measureDivs = (beatsForTempo * 4 / beatTypeForTempo) * divisionsForTempo;
+
+                    // Peta simbol beat-unit
+                    const beatSymbols = {
+                        whole: '𝅝', half: '𝅗𝅥', quarter: '♩',
+                        eighth: '♪', '16th': '𝅘𝅥𝅯', '32nd': '𝅘𝅥𝅰'
+                    };
+
+                    // Render semua, dengan stagger horizontal untuk mencegah tumpang tindih
+                    let lastRightX = -Infinity;
+                    const TEMPO_Y = currentY - 12 * scale;
+                    const TEMPO_SIZE = `${Math.round(11 * scale)}px`;
+                    const MIN_GAP = 6 * scale;
+
+                    tempoEntries.forEach(t => {
+                        const symbol = beatSymbols[t.beatUnit] || '♩';
+                        const dotStr = '.'.repeat(t.dots);
+                        const bpmText = `${symbol}${dotStr} = ${Math.round(t.bpm)}`;
+
+                        // Posisi X awal = measure start + offset
+                        const offsetRatio = (measureDivs > 0) ? (t.offsetDiv / measureDivs) : 0;
+                        let tempoX = currentX + offsetRatio * measureWidth;
+
+                        // Estimasi lebar teks (heuristik: ±6px per karakter pada zoom 1)
+                        const estimatedWidth = bpmText.length * 6 * scale;
+
+                        // Kalau tumpang tindih dengan tempo sebelumnya, dorong ke kanan
+                        if (tempoX < lastRightX + MIN_GAP) {
+                            tempoX = lastRightX + MIN_GAP;
+                        }
+
+                        this.drawText(tempoX, TEMPO_Y, bpmText, TEMPO_SIZE,
+                            this.engraverColor, "start", true);
+
+                        lastRightX = tempoX + estimatedWidth;
+                    });
                 }
             }
 
@@ -1328,7 +1496,6 @@ class MusicXMLSVGRenderer {
         const system = targetMeasure.closest('g[data-system-number]');
         let systemY = parseFloat(system?.getAttribute('y') ?? 0);
 
-        // ⬇️ GANTI seluruh blok getCTM dengan ini:
         if (midiTrackId !== undefined && midiTrackId !== null && system) {
             const staffEl = system.querySelector(
                 `g[data-staff-id][data-midi-track-id="${String(midiTrackId)}"]`
@@ -2485,9 +2652,8 @@ class MusicXMLSVGRenderer {
                     this.drawDot(dotX, restSymbolElement.y, this.engraverColor);
                 }
             }
-            // **FIX**: Draw lyric if it's attached to a rest
             if (note.lyric) {
-                this.drawText(x, y + (this.liricYOffset * scale), note.lyric, `${Math.round(this.lyricFontSize * scale)}px`, "#1e293b", "middle", false, this.lyricFontFamily);
+                this.drawText(x, y + (this.lyricYOffset * scale), note.lyric, `${Math.round(this.lyricFontSize * scale)}px`, "#1e293b", "middle", false, this.lyricFontFamily);
             }
             
             this.svg = originalSvg; // Restore original target
@@ -2590,7 +2756,7 @@ class MusicXMLSVGRenderer {
 
             // Lyric Text
             if (note.lyric) {
-                this.drawText(x, y + (this.liricYOffset * scale), note.lyric, `${Math.round(this.lyricFontSize * scale)}px`, "#1e293b", "middle", false, this.lyricFontFamily);
+                this.drawText(x, y + (this.lyricYOffset * scale), note.lyric, `${Math.round(this.lyricFontSize * scale)}px`, "#1e293b", "middle", false, this.lyricFontFamily);
             }
 
             // Slurs / Ties Bezier Arcs
@@ -2868,30 +3034,27 @@ class MusicXMLSVGRenderer {
 
         const beamOffset = 0.7 * scale;
 
-        // ============================================================
-        // PRIMARY BEAM (level 1) — selalu menggantikan seluruh grup
-        // ============================================================
-        {
-            let px1 = x1;
-            let px2 = x2;
-            if (px1 < px2) {
-                px1 -= beamOffset;
-                px2 += beamOffset;
-            } else {
-                px1 += beamOffset;
-                px2 -= beamOffset;
-            }
 
-            const beam = document.createElementNS("http://www.w3.org/2000/svg", "line");
-            beam.classList.add("note-beam");
-            beam.setAttribute("x1", px1);
-            beam.setAttribute("y1", y1);
-            beam.setAttribute("x2", px2);
-            beam.setAttribute("y2", y2);
-            beam.setAttribute("stroke", this.engraverColor);
-            beam.setAttribute("stroke-width", `${3.5 * scale}`);
-            this.svg.appendChild(beam);
+        let px1 = x1;
+        let px2 = x2;
+        if (px1 < px2) {
+            px1 -= beamOffset;
+            px2 += beamOffset;
+        } else {
+            px1 += beamOffset;
+            px2 -= beamOffset;
         }
+
+        const beam = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        beam.classList.add("note-beam");
+        beam.setAttribute("x1", px1);
+        beam.setAttribute("y1", y1);
+        beam.setAttribute("x2", px2);
+        beam.setAttribute("y2", y2);
+        beam.setAttribute("stroke", this.engraverColor);
+        beam.setAttribute("stroke-width", `${3.5 * scale}`);
+        this.svg.appendChild(beam);
+    
 
         // ============================================================
         // SECONDARY / TERTIARY BEAMS — per contiguous run
@@ -3652,7 +3815,7 @@ class MusicXMLSVGRenderer {
     static getNoteType(duration, divisions) {
         if (divisions <= 0 || duration <= 0) return '128th';
         const value = duration / (4 * divisions); // Value relative to a whole note
-        for (const type of MusicXMLSVGRenderer.NOTE_TYPE_VALUES) {
+        for (const type of this.NOTE_TYPE_VALUES) {
             if (value >= type.val - 0.0001) {
                 return type.name;
             }
@@ -3669,7 +3832,7 @@ class MusicXMLSVGRenderer {
     static isStandardDuration(duration, divisions) {
         if (duration <= 0 || divisions <= 0) return false;
         const value = duration / (4 * divisions); // Value relative to a whole note
-        for (const type of MusicXMLSVGRenderer.NOTE_TYPE_VALUES) {
+        for (const type of this.NOTE_TYPE_VALUES) {
             const baseDuration = type.val;
             // Only undotted and single-dotted durations are rendered directly.
             // Longer dotted values are rendered as tied notes instead.
@@ -3697,7 +3860,7 @@ class MusicXMLSVGRenderer {
         if (Math.abs(fractionalPart - 0.75) < 0.001 && value >= 1) {
             // Keep the integer portion undotted, then use a dotted half note.
             let wholeUnits = Math.floor(value);
-            for (const type of MusicXMLSVGRenderer.NOTE_TYPE_VALUES) {
+            for (const type of this.NOTE_TYPE_VALUES) {
                 while (wholeUnits >= type.val && Number.isInteger(type.val)) {
                     pieces.push(Math.round(type.val * 4 * divisions));
                     wholeUnits -= type.val;
@@ -3711,7 +3874,7 @@ class MusicXMLSVGRenderer {
             let bestPieceDuration = 0;
 
             // Iterate through standard note types from largest to smallest
-            for (const type of MusicXMLSVGRenderer.NOTE_TYPE_VALUES) {
+            for (const type of this.NOTE_TYPE_VALUES) {
                 const baseDurationDivs = type.val * 4 * divisions;
 
                 // Check for single-dotted and undotted durations.
@@ -3750,8 +3913,8 @@ class MusicXMLSVGRenderer {
     static getDotCount(duration, divisions) {
         if (duration <= 0 || divisions <= 0) return 0;
         const value = duration / (4 * divisions);
-        const noteType = MusicXMLSVGRenderer.getNoteType(duration, divisions);
-        const type = MusicXMLSVGRenderer.NOTE_TYPE_VALUES.find(item => item.name === noteType);
+        const noteType = this.getNoteType(duration, divisions);
+        const type = this.NOTE_TYPE_VALUES.find(item => item.name === noteType);
         if (!type) return 0;
 
         if (Math.abs(value - type.val * 1.5) < 0.001) return 1;
@@ -3827,7 +3990,7 @@ class MusicXMLSVGRenderer {
      * @returns {number} Duration in divisions.
      */
     static getDurationFromType(typeName, dots, divisions) {
-        const type = MusicXMLSVGRenderer.NOTE_TYPE_VALUES.find(t => t.name === typeName);
+        const type = this.NOTE_TYPE_VALUES.find(t => t.name === typeName);
         if (!type) return 0;
         
         // Base value in beats (quarter notes)

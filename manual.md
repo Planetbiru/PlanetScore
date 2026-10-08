@@ -23,8 +23,8 @@ This document provides a comprehensive overview of the JavaScript classes used i
     -   Meta Events (tempo, time signature, key signature, track name, lyrics).
 -   **Track Metadata**: Every track exposes a `channels` array — a list of MIDI channels used in that track. This is used by the UI to map track selections to channels.
 -   **Meta Track Identification**: Tracks that contain no note events (only meta events like lyrics, tempo, or time signature) are considered *meta tracks*. They are preserved by `MidiToMusicXML` even when specific channels are selected.
--   **Normalization**: Optionally shifts all event timings so that the first note in the score starts at tick 0, removing any initial silence.
--   **Event Reordering (`forceUpdateEvents`)**: Moves setup events (e.g., Program Change, Volume, Pan, Reverb, Bank Select, Pitch Bend) that occur before the first note to tick 0, ensuring the correct initial state.
+-   **Normalization**: Optionally shifts all event timings so that the first note in the score starts at tick 0, removing any initial silence. Direct calls to `MidiParser.parse()` default to no normalization; `MidiToMusicXML.convert()` defaults to `normalize: true`.
+-   **Initial State Events (`forceUpdateEvents`)**: When enabled, relocates selected setup events before each channel's first note to tick 0. Direct parser calls default this off; the converter defaults it on.
 
 ### Main Method
 
@@ -34,8 +34,8 @@ This is the primary static method used to parse a MIDI file.
 
 -   **`buffer`**: An `ArrayBuffer` containing the binary MIDI data.
 -   **`options`**: An optional configuration object.
-    -   `normalize` (boolean): If `true`, the entire timeline is shifted so the first note event occurs at tick 0. Defaults to `false`.
-    -   `forceUpdateEvents` (boolean): If `true`, initial setup events (like Program Change) that occur before the first note are moved to tick 0 to ensure they are applied correctly.
+    -   `normalize` (boolean): If `true`, all relevant event timings are shifted so the earliest note starts at tick 0. Defaults to `false` when omitted.
+    -   `forceUpdateEvents` (boolean): If `true`, initialization events before the first note are moved to tick 0. For Program Change and Bank Select, only the last pre-note event per channel is retained; selected controllers and pitch bends are also moved. Defaults to `false` when omitted.
 
 ### Return Value
 
@@ -43,7 +43,13 @@ Returns an object with the following structure:
 
 ```
 {
-  header: { ppq, tempos, timeSignatures, keySignatures, maxTicks, ... },
+    header: {
+        format, numTracks, ppq, tempos, meta, timeSignatures, keySignatures,
+        maxTicks, firstNoteTick, channelProgramChanges, channelBankChanges,
+        preparedTimeSignatures,
+        getInstrumentAtTick(channel, tick), ticksToSeconds(tick),
+        secondsToTicks(seconds), tickToPosition(tick)
+    },
   tracks: [
     {
       name: "Track Name",
@@ -57,9 +63,11 @@ Returns an object with the following structure:
     },
     ...
   ],
-  instruments: { 0: [0], 3: [40], ... }  // program numbers per channel
+    instruments: { 0: [0], 3: [40], ... }  // programs observed per channel
 }
 ```
+
+`tickToPosition()` returns the measure, beat, active time signature, and tick offsets needed by score playback. If the MIDI file contains no time-signature event, the parser uses 4/4 as the prepared default.
 
 ---
 
@@ -79,6 +87,7 @@ Returns an object with the following structure:
     -   `splitPoint`: A specific MIDI note number (e.g., `60` for Middle C) to force a two-stave split (bypasses both thresholds).
     -   `splitPoints`: An array of two MIDI note numbers (e.g., `[71, 59]`) to force a three-stave split (e.g., for organ). Bypasses both thresholds.
 -   **Drum Notation**: Provides special handling for percussion on MIDI channel 10, mapping drum notes to standard drum notation visuals (e.g., 'x' noteheads).
+-   **Overlap-Based Staff Splitting**: Independently of range-based `autoSplit`, overlapping voices in one channel are assigned multiple staves by default. Set `autoSplitOnOverlap: false` to disable this behavior.
 -   **Lyric Integration**: Attaches lyrics to notes based on their timing. Lyrics are placed on the first staff (or the lyric carrier channel), creating rests if necessary to hold the text.
     -   `lyricChannelId` (1-indexed MIDI channel, e.g. `4`): the channel that carries the lyrics. If the channel is not present in the rendered score, lyrics are **disabled entirely** (no fallback to a different channel). This prevents lyrics from being accidentally attached to non-melody parts.
 -   **Rest Filling**: Automatically fills gaps in the music with rests to ensure all measures are rhythmically complete.
@@ -104,10 +113,14 @@ This is the main entry point for the conversion process.
 | `divisions` | number | `4` | Divisions per quarter note in the generated MusicXML. |
 | `selectedChannels` | number[] \| null | `null` | Array of MIDI channel numbers (0–15) to render. If not set, all channels are rendered. Meta tracks are always preserved. |
 | `selectedTracks` | number \| number[] | `null` | Track index (or indices) to render (legacy). Internally resolves to that track's channels. Meta tracks (with no notes) are always preserved. |
+| `normalize` | boolean | `true` | Normalize parsed events so the earliest note starts at tick 0. |
+| `forceUpdateEvents` | boolean | `true` | Move supported initial setup events before the first note to tick 0. |
 | `lyricChannelId` | number \| null | `null` | 1-indexed MIDI channel that carries the lyrics (e.g. `4` = channel index 3). If the channel is absent from the rendered score, lyrics are disabled. |
 | `autoSplit` | boolean | `false` | Enables automatic channel splitting based on note range. |
 | `splitThreshold` | number | `24` | Primary threshold (semitones) for automatic split. Lowered to `14` automatically for piano (program 0–7). |
 | `minSplitRange` | number | `30` | Hard floor (semitones). Parts with a smaller range are **never** auto-split. Set to `0` to disable the floor. |
+| `autoSplitOnOverlap` | boolean | `true` | Split a channel into multiple staves when simultaneous overlapping voices are detected. Set to `false` to disable. |
+| `overlapToleranceRatio` | number | `1/32` | Treat overlaps within this fraction of PPQ as legato rather than separate voices. |
 | `splitPoint` | number \| null | `null` | Forces a two-stave split at the given MIDI note. |
 | `splitPoints` | array \| null | `null` | Forces a three-stave split (e.g. `[71, 59]`). |
 | `muteChannels` | number[] | `[]` | Channels to exclude from the rendered score. |
@@ -145,7 +158,7 @@ To disable the floor (legacy behavior), set `minSplitRange: 0`.
 
 Electric bass, acoustic bass, and other low-register instruments sound an octave below where they are conventionally written. Without adjustment, their notes fall far below the bass clef and require an impractical number of ledger lines, collide with the lyric row, and can even trigger the renderer's auto-clef logic to pick an unintended clef.
 
-The `transposeBass` option solves this **inside `MidiToMusicXML`**, using a *per-note*, *program-aware* rule:
+The `transposeBass` option handles this **inside `MidiToMusicXML`**, using a *per-note*, *program-aware* rule:
 
 - It works **independently of the global `transpose`** option and is applied on top of it.
 - It is evaluated **per note**, not per channel. A channel that switches between instruments (e.g., an acoustic-guitar intro that later switches to bass) has only its bass notes shifted — the guitar notes are left untouched.
@@ -165,7 +178,7 @@ The `transposeBass` option solves this **inside `MidiToMusicXML`**, using a *per
 
 The converter inspects the **Program Change events** of the note's channel via `parsed.header.channelProgramChanges[ch]`. For each note, it finds the program that is active at the note's `ticks` (i.e., the most recent Program Change at or before that tick) and checks whether it belongs to `transposeBassInstruments`.
 
-This is why a single channel can safely contain both guitar and bass notes: each note is evaluated against the program that was actually in effect when it was played.
+This is why a single channel can safely contain both guitar and bass notes: each note is evaluated against the program that was actually in effect when it was played. The parser's `forceUpdateEvents` option may move the effective pre-note Program Change to tick 0.
 
 **Example**
 
@@ -189,7 +202,7 @@ In the example above:
 
 **Relationship with the SVG/PDF Renderers**
 
-`transposeBass` is a **score-generation** concern, not a rendering concern. The SVG and PDF renderers see only the resulting MusicXML — they do not know which notes were bass notes and do not apply any instrument-specific octave shift of their own. This matches the design principle documented under *Bass Guitar Octave Adjustment*: instrument-specific octave conventions belong upstream of `convert()`, and `transposeBass` is the mechanism that fulfils that role without requiring the caller to pre-process the MIDI buffer.
+`transposeBass` is a **score-generation** concern, not a rendering concern. The SVG and PDF renderers see only the resulting MusicXML; they do not identify bass instruments or apply an instrument-specific octave shift themselves.
 
 ---
 
@@ -213,7 +226,7 @@ In the example above:
     -   Secondary (16th) and tertiary (32nd) beams are drawn only across notes that require them.
     -   Half and quarter notes are never beamed with neighbors.
 -   **Ledger Lines**: Ledger lines are drawn only for notes that fall outside the staff range. Lines that would overlap with the 5 staff lines are automatically skipped. The staff range is clef-aware (treble `2..10`, bass `-10..-2`, alto `-4..4` in diatonic index).
--   **Auto-Clef Selection**: Automatically picks the most suitable clef (treble G / bass F / alto C) for each staff based on the pitch distribution across the entire part. Prevents "hanging" melodies that sit far below the treble staff from colliding with the lyric row.
+-   **Auto-Clef Selection**: Preserves each staff's source clef unless its pitch range overflows by at least four diatonic steps, then switches toward the greater overflow. It does not automatically select alto clef.
 
 ### Main Methods
 
@@ -245,7 +258,7 @@ Highlights the note groups whose `data-start-tick`/`data-end-tick` range include
 
 ### Auto-Clef Selection
 
-When a melody is written with a treble clef in the source MIDI but its pitches lean low, the notes end up far below the staff and can overlap with the lyric row. Auto-clef solves this by analyzing the actual pitch content of every staff before rendering and choosing the clef whose vertical center is closest to the weighted average pitch.
+Auto-clef analyzes the pitches on each staff before rendering. It measures the lowest and highest diatonic positions and a duration-weighted average. The SVG and PDF renderers use different rules to decide whether to change the clef.
 
 **Algorithm** (executed once, before the first system is drawn):
 
@@ -253,43 +266,23 @@ When a melody is written with a treble clef in the source MIDI but its pitches l
 2.  For each staff, compute:
     -   `minDiatonic` / `maxDiatonic` — lowest and highest diatonic index.
     -   `avgDiatonic` — duration-weighted average pitch. Long notes contribute more than short ones, so a single high note doesn't skew the decision.
-3.  Compare `avgDiatonic` with the center of each candidate clef:
-    -   Treble (G): center at B4 → diatonic `6`
-    -   Alto (C): center at C4 → diatonic `0`
-    -   Bass (F): center at D3 → diatonic `-6`
-4.  Pick the clef whose center is nearest to `avgDiatonic`.
+3.  Consider the source MusicXML clef and how far the range overflows its staff.
 
 **Modes**:
 
 | Mode | Options | Behaviour |
 |---|---|---|
-| Default | `autoClef: true` (default), `allowAltoClef: false` | Two-way swap between treble and bass, using a configurable threshold around middle C. |
-| Alto allowed | `autoClef: true`, `allowAltoClef: true` | Three-way choice between G / C / F. Useful for viola, trombone, or any part that sits comfortably around middle C. |
+| Default | `autoClef: true` (default) | SVG keeps the original clef unless the pitch range overflows it by at least 4 diatonic steps; it then switches toward the direction of greater overflow. It does not automatically select alto clef. |
+| `allowAltoClef` | `true` | The option is accepted by the SVG constructor, but it currently does not change the SVG clef-selection algorithm. The PDF renderer does use it (see its section below). |
 | Disabled | `autoClef: false` | Clef is taken verbatim from the MusicXML. Behaviour identical to previous versions. |
 
-**Threshold tuning**: In two-way mode, the swap points are controlled by:
-
--   `clefGtoFThreshold` (default `4`, equivalent to G4) — a part is switched G → F if its weighted average pitch falls **below** this diatonic index.
--   `clefFtoGThreshold` (default `-4`, equivalent to F3) — a part is switched F → G if its weighted average pitch falls **above** this diatonic index.
-
-Lower values (e.g. `0` = middle C) make the swap conservative; higher values (e.g. `6` = B4) make it aggressive. When `allowAltoClef` is enabled, these thresholds are ignored and the closest-center rule is used instead.
+The SVG overflow threshold is currently fixed at 4 steps; the constructor properties `clefGtoFThreshold` and `clefFtoGThreshold` are accepted but are not used by the current selection logic.
 
 **Interaction with explicit clef changes**: If the MusicXML explicitly changes clef mid-piece (e.g. a passage written in a different register), the auto-clef only overrides the *first* measure's clef. Subsequent explicit clef changes are respected. This is enforced by the `_clefAutoApplied` flag set on each `staffState` entry.
 
 ### Bass Guitar Octave Adjustment
 
-Electric bass guitar produces pitches in a very low register — typically E1 (MIDI note 28) up to G3 (MIDI note 55), with the open E string sounding at roughly 41 Hz. When a bass guitar track is rendered to standard notation as-is, the notes fall far below the bass clef staff and require a very large number of ledger lines. This makes the score hard to read, causes note heads and lyrics to collide, and can even trigger the auto-clef logic to push the part into an unintended clef.
-
-To produce a readable score, **raise the bass guitar part by one octave (12 semitones) before the conversion and rendering pipeline begins.** This is standard practice in bass-guitar notation: the part is written one octave higher than it sounds, and the performer understands to play an octave lower.
-
-#### Where the transposition must happen
-
-The transposition is **not** a responsibility of `MidiToMusicXML` or of either renderer. Both components are intentionally unaware of instrument-specific octave conventions:
-
-- `MidiToMusicXML` converts whatever MIDI it receives, verbatim (aside from the uniform `transpose` option).
-- `MusicXMLSVGRenderer` and `MusicXMLPDFRenderer` render whatever MusicXML they receive, verbatim.
-
-Therefore the bass-guitar octave shift must be applied **upstream**, on the MIDI data itself, before `convert()` is called. The converter and renderers then operate on a normal, readable bass part without needing any special-case logic.
+For a readable written bass part, use `transposeBass: true` in `MidiToMusicXML.convert()`. The converter adds 12 semitones to notes whose channel's active GM program is in `transposeBassInstruments`; no MIDI preprocessing is required. The renderers do not apply instrument-specific transposition themselves. See [Bass Instrument Transposition](#bass-instrument-transposition).
 
 ### Additional Constructor Options
 
@@ -297,13 +290,10 @@ Beyond the spacing controls documented above, the SVG constructor also accepts:
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `orientation` | string | `'portrait'` | Page orientation: `'portrait'` or `'landscape'`. |
-| `paperSize` | string \| number[] | `'a4'` | Named paper size (e.g. `'a4'`, `'letter'`, `'a3'`) or a custom `[width, height]` array in PDF points. Alias: `format`. |
 | `autoClef` | boolean | `true` | Enable automatic clef selection per staff. |
-| `allowAltoClef` | boolean | `false` | When `autoClef` is on, allow alto clef (C) to be selected for mid-range parts. |
-| `clefGtoFThreshold` | number | `4` | Diatonic index below which a G-clef part is switched to F. |
-| `clefFtoGThreshold` | number | `-4` | Diatonic index above which an F-clef part is switched to G. |
-| `debugAutoClef` | boolean | `false` | Log each staff's auto-clef decision (`avgDiatonic`, `min`, `max`, original and chosen clef) to the browser console. |
+| `allowAltoClef` | boolean | `false` | Accepted for compatibility; currently has no effect on SVG auto-clef selection. |
+| `stemDirectionThreshold` | number \| null | `null` | Overrides the automatic stem-direction threshold. `null` uses the clef-specific default. |
+| `paperBg` | string | `'#ffffff'` | SVG background color; use `'transparent'` to inherit the CSS background. |
 | `lyricFontSize` | number | `11` | Font size for lyric text. |
 | `lyricFontFamily` | string | `'sans-serif'` | Generic family applied to lyric text. |
 
@@ -318,7 +308,7 @@ Beyond the spacing controls documented above, the SVG constructor also accepts:
 | `'portrait'` | Default. Page height greater than width. |
 | `'landscape'` | Page width greater than height. |
 
-When `paperSize` is given as a `[width, height]` array, `orientation` swaps the two dimensions if needed, so the caller does not have to reorder the array.
+When `paperSize` is given as a `[width, height]` array, pass the dimensions in the order required for the desired orientation. The renderer forwards the array to jsPDF and does not reorder it.
 
 #### `paperSize`
 
@@ -375,7 +365,7 @@ Walks every measure of every part and returns a per-staff summary:
     -   Stems are drawn directly from the notehead to the beam, avoiding double-line artifacts.
 -   **Ledger Lines**: Same rule as the SVG renderer — ledger lines that would overlap staff lines are skipped. Staff range is clef-aware.
 -   **Key Signature per Clef**: Uses proper diatonic positions for treble, bass, and alto clefs (alto clef positions are `F4 C4 G4 D4 A3 E4 B3` for sharps, `B3 E4 A3 D4 G3 C4 F3` for flats).
--   **Auto-Clef Selection**: Automatically picks the most suitable clef (treble G / bass F / alto C) for each staff based on the pitch distribution across the entire part. Prevents "hanging" melodies that sit far below the treble staff from colliding with the lyric line.
+-   **Auto-Clef Selection**: Preserves each staff's source clef unless its pitch range exceeds the configured overflow threshold. Alto clef is considered only when `allowAltoClef` is enabled and the threshold is met.
 
 ### Main Methods
 
@@ -400,7 +390,7 @@ Saves the generated PDF and triggers a browser download.
 
 ### Auto-Clef Selection
 
-When a melody is written with a treble clef in the source MIDI but its pitches lean low, the notes end up far below the staff and can overlap with the lyric row. Auto-clef solves this by analyzing the actual pitch content of every staff before rendering and choosing the clef whose vertical center is closest to the weighted average pitch.
+The PDF renderer analyzes each staff's pitch range and duration-weighted average before drawing. It preserves the original clef unless the range extends far enough beyond it to meet `clefMinOverflow`.
 
 **Algorithm** (executed once, before the first system is drawn):
 
@@ -408,30 +398,39 @@ When a melody is written with a treble clef in the source MIDI but its pitches l
 2.  For each staff, compute:
     -   `minDiatonic` / `maxDiatonic` — lowest and highest diatonic index.
     -   `avgDiatonic` — duration-weighted average pitch. Long notes contribute more than short ones, so a single high note doesn't skew the decision.
-3.  Compare `avgDiatonic` with the center of each candidate clef:
-    -   Treble (G): center at B4 → diatonic `6`
-    -   Alto (C): center at C4 → diatonic `0`
-    -   Bass (F): center at D3 → diatonic `-6`
-4.  Pick the clef whose center is nearest to `avgDiatonic`.
+3.  Measure overflow beyond the current clef's range (G: `0..12`, C: `-6..6`, F: `-12..0`).
+4.  If either side overflows by at least `clefMinOverflow` (default `4`), switch toward the side with greater overflow. If `allowAltoClef` is enabled, choose the nearest clef center (G: `6`, C: `0`, F: `-6`) instead.
 
 **Modes**:
 
 | Mode | Options | Behaviour |
 |---|---|---|
-| Default | `autoClef: true` (default), `allowAltoClef: false` | Two-way swap between treble and bass, using middle C as the threshold. The clef is only changed if the average falls on the wrong side of middle C, so parts that already fit their original clef are left alone. |
-| Alto allowed | `autoClef: true`, `allowAltoClef: true` | Three-way choice between G / C / F. Useful for viola, trombone, or any part that sits comfortably around middle C. |
+| Default | `autoClef: true` (default), `allowAltoClef: false` | Preserves the original clef unless the pitch range overflows it by at least `clefMinOverflow`; then switches toward the side with greater overflow. |
+| Alto allowed | `autoClef: true`, `allowAltoClef: true` | After the overflow threshold is met, chooses the nearest center among G / C / F. |
 | Disabled | `autoClef: false` | Clef is taken verbatim from the MusicXML. Behaviour identical to previous versions. |
 
 **Interaction with explicit clef changes**: If the MusicXML explicitly changes clef mid-piece (e.g. a passage written in a different register), the auto-clef only overrides the *first* measure's clef. Subsequent explicit clef changes are respected. This is enforced by the `_clefAutoApplied` flag set on each `staffState` entry.
 
 ### Additional Constructor Options
 
-Beyond the spacing controls shared with the SVG renderer, the PDF constructor also accepts:
+The PDF constructor accepts page setup, layout, clef, filtering, and export options. Its spacing defaults are `80` for staff, part, and system spacing (each multiplied by `scale`, whose default is `0.8`).
 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `autoClef` | boolean | `true` | Enable automatic clef selection per staff. |
 | `allowAltoClef` | boolean | `false` | When `autoClef` is on, allow alto clef (C) to be selected for mid-range parts. |
+| `clefMinOverflow` | number | `4` | Minimum diatonic overflow required before changing from the source clef. |
+| `debugAutoClef` | boolean | `false` | Enable diagnostic logging for clef selection. |
+| `scale` | number | `0.8` | Global layout multiplier for spacing and selected dimensions. |
+| `orientation` | string | `'portrait'` | Page orientation: `'portrait'` or `'landscape'`. |
+| `paperSize` | string \| number[] | `'a4'` | jsPDF paper format, or custom `[width, height]` dimensions in points. `format` is an alias. |
+| `minMeasureWidth` | number | `150` | Minimum measure width in points. |
+| `idealMeasureWidth` | number \| null | `null` | Preferred measure width; defaults internally to `200` with lyrics and `220` without. |
+| `maxMeasuresPerLine` | number \| null | `null` | Maximum measures per system; otherwise derived from page dimensions and lyrics. |
+| `stemDirectionThreshold` | number | `7` | Diatonic threshold for automatic stem direction. |
+| `selectedChannels` | number[] \| null | `null` | MIDI channel indices used to identify a single-part render. |
+| `selectedTrack` | number[] \| null | `null` | MIDI track indices used to identify a single-part render (singular option name). |
+| `lyricYOffset` | number | `60` | Lyric baseline offset. The option name is intentionally spelled `lyricYOffset`. |
 | `compressSilentMeasure` | boolean | `false` | Collapse consecutive silent measures into a multi-measure rest. |
 | `showPageNumbers` | boolean | `true` | Draw "N of M" in the bottom-right corner of each page. |
 | `pageNumberColor` | number[] | `[100, 116, 139]` | RGB color of the page-number text. |
@@ -439,7 +438,7 @@ Beyond the spacing controls shared with the SVG renderer, the PDF constructor al
 | `lyricFontSize` | number | `10` | Font size for lyric text. |
 | `lyricFontFamily` | string | `'sans-serif'` | Generic family (`sans-serif`, `serif`, `monospace`) mapped to a jsPDF-safe font. |
 | `stemLength` | number | `24` | Minimum stem length. |
-| `firstSystemGap` | number | (unset) | Extra gap between the metadata block and the first system. |
+| `firstSystemGap` | number | `20` | Extra gap between the metadata block and the first system. |
 | `margin` | number | `40` | Legacy single margin, applied to all four sides unless overridden. |
 | `marginTop` / `marginRight` / `marginBottom` / `marginLeft` | number | `margin` | Per-side margin. |
 | `marginTopOtherPages` | number | `marginTop + 12` | Top margin for pages after the first (after the title block disappears). |
@@ -699,7 +698,7 @@ To summarize:
 
 ### Auto-Clef for Hanging Melodies
 
-Melodies that are notated in treble clef but sit mostly below the staff (common in pop vocals, baritone leads, and bass-heavy arrangements) can push the note heads down into the lyric row. Both `MusicXMLSVGRenderer` and `MusicXMLPDFRenderer` support the same auto-clef behaviour so the on-screen and printed scores stay consistent.
+Auto-clef is enabled by default in both renderers, but their selection rules differ: the SVG renderer uses a fixed overflow threshold and does not automatically choose alto clef; the PDF renderer supports configurable overflow and can consider alto clef.
 
 Default behaviour is on:
 
@@ -719,24 +718,12 @@ new MusicXMLSVGRenderer('score-container', {
 });
 ```
 
-To allow the alto clef as a third candidate (useful for viola or trombone parts):
+In PDF output, alto clef can be considered after the overflow threshold is met:
 
 ```js
-new MusicXMLSVGRenderer('score-container', {
-    // ...other options...
+new MusicXMLPDFRenderer({
     autoClef: true,
     allowAltoClef: true
-});
-```
-
-To tune the treble ↔ bass swap point:
-
-```js
-new MusicXMLSVGRenderer('score-container', {
-    // ...other options...
-    autoClef: true,
-    allowAltoClef: false,
-    clefGtoFThreshold: 6   // aggressive: anything below B4 is switched to bass
 });
 ```
 

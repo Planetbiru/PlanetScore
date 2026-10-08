@@ -18,98 +18,152 @@ class MidiToMusicXML {
     }
 
     /**
-     * Build an array mapping partIndex → midiTrackId by reading <midi-channel>
-     * from the MusicXML and matching it with the active MIDI tracks.
+     * Converts raw MIDI binary data into a MusicXML 4.0 Partwise string.
      *
-     * @param {string} xmlContent - Result of convert()
-     * @param {Object} [parsedMidi] - Optional result of MidiParser.parse(),
-     *                                used to map channel → track ID
-     * @returns {Array<number|null>} Array of track IDs per part index; null if not found
-     */
-    buildMidiTrackIdByPartIndex(xmlContent, parsedMidi) {
-        if(this.xmlContent == null || this.parsed == null) {
-            return [];
-        }
-        const doc = new DOMParser().parseFromString(xmlContent, "application/xml");
-        const scoreParts = Array.from(doc.querySelectorAll("part-list > score-part"));
-        if (scoreParts.length === 0) return [];
-
-        // Bangun peta: channel (0-based) → track id dari parsedMidi
-        // Track di MidiParser punya properti `channels` = array channel yang dipakai.
-        const channelToTrackId = new Map();
-        if (parsedMidi && Array.isArray(parsedMidi.tracks)) {
-            parsedMidi.tracks.forEach((t, idx) => {
-                if (!t.notes || t.notes.length === 0) return;   // skip meta track
-                if (Array.isArray(t.channels)) {
-                    t.channels.forEach(ch => {
-                        // Satu channel bisa dipakai beberapa track → ambil yang pertama
-                        if (!channelToTrackId.has(ch)) channelToTrackId.set(ch, idx);
-                    });
-                }
-            });
-        }
-
-        // Untuk setiap part, baca <midi-channel> (1-based) dan petakan ke track
-        return scoreParts.map(sp => {
-            const chEl = sp.querySelector("midi-instrument midi-channel");
-            if (!chEl) return null;
-            const ch1 = parseInt(chEl.textContent, 10);       // 1..16
-            if (!Number.isFinite(ch1)) return null;
-            const ch0 = ch1 - 1;                              // 0..15
-            return channelToTrackId.has(ch0) ? channelToTrackId.get(ch0) : null;
-        });
-    }
-
-    /**
-     * Get MIDI track IDs mapped by part index.
+     * The method performs the following pipeline:
+     *   1. Normalizes the input (`ArrayBuffer` / Node.js `Buffer`) into a raw
+     *      `ArrayBuffer` and parses it via `MidiParser.parse()`.
+     *   2. Optionally mutes specific MIDI channels.
+     *   3. Optionally transposes notes globally and/or for bass instruments.
+     *   4. Optionally filters the score to a subset of tracks.
+     *   5. Determines which channel (if any) carries lyrics.
+     *   6. Delegates the actual XML serialization to {@link convertParsed}.
      *
-     * @returns {Array<number|null>} Array of track IDs per part index
-     */
-    getMidiTrackId() {
-        return this.buildMidiTrackIdByPartIndex(this.xmlContent, this.parsed);
-    }
-
-    /**
-     * Build an array mapping partIndex → MIDI channel (0-based) by reading
-     * <midi-channel> from the MusicXML. The array order matches the order of
-     * <score-part> elements in <part-list>, so the array index = partIndex.
+     * The instance keeps the last parse result (`this.parsed`) and the last
+     * generated XML string (`this.xmlContent`) for later inspection — see
+     * {@link getMidiTrackId} and {@link getMidiChannel}.
      *
-     * @param {string} xmlContent - Result of convert()
-     * @returns {Array<number|null>} Array of channels (0-based) per part; null if not found
-     */
-    buildMidiChannelByPartIndex(xmlContent) {
-        if (!xmlContent) return [];
-
-        const doc = new DOMParser().parseFromString(xmlContent, "application/xml");
-        const scoreParts = Array.from(doc.querySelectorAll("part-list > score-part"));
-        if (scoreParts.length === 0) return [];
-
-        return scoreParts.map(sp => {
-            const chEl = sp.querySelector("midi-instrument midi-channel");
-            if (!chEl) return null;
-            const ch1 = parseInt(chEl.textContent, 10);   // 1..16
-            if (!Number.isFinite(ch1)) return null;
-            return ch1 - 1;                                // 0..15
-        });
-    }
-
-    /**
-     * Get MIDI channels per part index.
+     * @param {ArrayBuffer|Buffer} midiBuffer - Raw MIDI file contents. In the
+     *        browser, pass an `ArrayBuffer`. In Node.js, a `Buffer` is accepted
+     *        and internally converted to a standalone `ArrayBuffer` slice.
      *
-     * @param {boolean} [oneBased=false] - If true, return channels as 1..16 instead of 0..15
-     * @returns {Array<number|null>} Array of channels per part; null if not found
-     */
-    getMidiChannel(oneBased = false) {
-        const chs = this.buildMidiChannelByPartIndex(this.xmlContent);
-        if (!oneBased) return chs;
-        return chs.map(c => (c === null ? null : c + 1));
-    }
-
-    /**
-     * Converts raw MIDI binary data (ArrayBuffer/Buffer) into a MusicXML string.
-     * @param {ArrayBuffer|Buffer} midiBuffer 
-     * @param {Object} [options] 
-     * @returns {string} MusicXML String
+     * @param {Object} [options={}] - Conversion options.
+     *
+     * ### Metadata
+     * @param {string} [options.title="Song Title"]   - Value written to
+     *        `<work-title>`.
+     * @param {string} [options.creator="Composer Name"] - Value written to
+     *        `<creator type="composer">`.
+     * @param {number} [options.divisions=4] - MusicXML `<divisions>` value,
+     *        i.e. divisions per quarter note. Higher values give finer
+     *        rhythmic resolution at the cost of larger files.
+     *
+     * ### Track and channel selection
+     * @param {number[]|null} [options.selectedChannels=null] - Whitelist of
+     *        MIDI channels (0-based) to include. When `null`, every channel
+     *        that contains at least one note is emitted as its own part.
+     * @param {number[]|number|null} [options.selectedTracks=null] - Whitelist
+     *        of MIDI track indices to render. Accepts a single index or an
+     *        array. Meta-only tracks (those without notes) are always kept so
+     *        tempo / time-signature data is preserved.
+     * @param {number[]} [options.muteChannels] - MIDI channels (0-based) to
+     *        drop entirely. Affects notes, controllers, and pitch-bend events
+     *        across all tracks. Useful for producing instrumental versions of
+     *        a mixed MIDI file.
+     *
+     * ### Transposition
+     * @param {number} [options.transpose=0] - Semitone offset applied to every
+     *        non-drum note (channel 9 excluded). Clamped to `[0, 127]`.
+     * @param {boolean} [options.transposeBass=false] - When `true`, add an
+     *        extra `+12` semitones to any note whose channel is currently
+     *        assigned one of the programs listed in
+     *        `transposeBassInstruments`. Useful for making bass lines readable
+     *        on a standard treble staff.
+     * @param {number[]} [options.transposeBassInstruments=[32..39]] - GM program
+     *        numbers (0-indexed) that should receive the additional octave
+     *        transpose. Defaults to Acoustic Bass through Synth Bass 2.
+     *
+     * ### Parsing
+     * @param {boolean} [options.normalize=true] - Forwarded to
+     *        `MidiParser.parse()`. When `true`, all events are shifted so the
+     *        first note starts at tick 0.
+     * @param {boolean} [options.forceUpdateEvents=true] - Forwarded to
+     *        `MidiParser.parse()`. When `true`, initialization events that
+     *        occur before the first note (program change, CC7, CC10, pitch
+     *        bend, etc.) are relocated to tick 0 so MusicXML consumers see
+     *        them before any note.
+     *
+     * ### Rhythm quantization
+     * @param {number|null} [options.snapPosition=null] - Snap note onsets to the
+     *        nearest multiple of this duration, expressed in whole-note units
+     *        (e.g. `0.125` = 1/8 note, `0.25` = 1/4 note). `null` disables
+     *        onset snapping.
+     * @param {number|null} [options.snapDuration=null] - Snap note durations to
+     *        the nearest multiple of this value, in whole-note units. `null`
+     *        disables duration snapping. Minimum snapped duration is one step
+     *        of the snap grid.
+     *
+     * ### Staff splitting
+     * @param {boolean} [options.autoSplit=false] - Enable automatic
+     *        range-based splitting. A channel is promoted to a grand staff
+     *        when its pitch span exceeds `splitThreshold` (or `14` semitones
+     *        for piano programs). Requires `autoSplit=true` to take effect.
+     * @param {number}  [options.splitThreshold=24] - Semitone span above which
+     *        a non-piano channel is split into two staves. Ignored when
+     *        `autoSplit=false`. `0` disables range-based splitting.
+     * @param {number|null} [options.splitPoint=null] - Force a two-staff split
+     *        on the first non-drum channel at this MIDI note number (e.g.
+     *        `60` for Middle C). Overrides `splitThreshold`.
+     * @param {[number, number]|null} [options.splitPoints=null] - Force a
+     *        three-staff split on the first non-drum channel. Two numbers
+     *        `[highSplit, lowSplit]` define the boundaries (highest staff,
+     *        middle staff, lowest staff). Overrides both `splitPoint` and
+     *        `splitThreshold`.
+     * @param {number|null} [options.minSplitRange=null] - Hard floor for
+     *        `autoSplit`. Channels whose pitch span is smaller than this value
+     *        are never split, regardless of `splitThreshold`. When `null`, a
+     *        default of `30` semitones is used.
+     * @param {boolean} [options.autoSplitOnOverlap=false] - Enable overlap-based
+     *        splitting. When a channel contains notes that sound simultaneously
+     *        in more than one voice (e.g. sustained bass under a moving melody),
+     *        the channel is promoted to two or three staves so each voice
+     *        remains legible. Independent of `autoSplit`.
+     * @param {number} [options.overlapToleranceRatio=1/32] - Legato tolerance
+     *        for overlap detection, expressed as a fraction of `ppq`. A note
+     *        ending within this many ticks of the next note's start is treated
+     *        as *not* overlapping. Larger values make detection more lenient
+     *        and reduce spurious splits caused by sloppy MIDI timing.
+     *
+     * ### Layout
+     * @param {boolean} [options.useRestFilling=true] - When `true`, gaps
+     *        between notes are filled with rests so every measure sums to its
+     *        time-signature length. Disabling this produces sparse measures
+     *        where note positions are still correct but rests are omitted.
+     *
+     * ### Lyrics
+     * @param {number} [options.lyricChannelId] - MIDI channel that carries the
+     *        lyrics, **1-indexed** (so `4` means channel index 3). When
+     *        provided, lyrics are attached only to notes on that channel. If
+     *        the channel is not present in the score (e.g. filtered out),
+     *        lyrics are disabled rather than moved to another part.
+     *
+     *        When omitted, the converter auto-detects a lyric channel:
+     *          - if MIDI channel 4 (index 3) is present in the score, it is
+     *            used;
+     *          - otherwise, the first channel that actually contains lyric
+     *            events whose ticks overlap its notes is used;
+     *          - if no match is found, lyrics are disabled.
+     *
+     * @returns {string} A complete MusicXML 4.0 Partwise document.
+     *
+     * @throws {Error} If `midiBuffer` is not valid MIDI — the underlying
+     *         `MidiParser.parse()` will throw when the `MThd` header is
+     *         missing or malformed.
+     *
+     * @example
+     * // Browser
+     * const converter = new MidiToMusicXML();
+     * const xml = converter.convert(arrayBuffer, {
+     *     title: 'Sonata No. 1',
+     *     creator: 'L. v. Beethoven',
+     *     autoSplit: true,
+     *     autoSplitOnOverlap: true,
+     *     lyricChannelId: 4,
+     * });
+     *
+     * // Inspect the mapping of MusicXML parts → MIDI tracks afterward
+     * const trackIds = converter.getMidiTrackId();    // e.g. [0, 2, null]
+     * const channels = converter.getMidiChannel();    // e.g. [0, 2, 9]
      */
     convert(midiBuffer, options = {}) {
         // Resolve Buffer to ArrayBuffer for MidiParser
@@ -135,7 +189,9 @@ class MidiToMusicXML {
             snapDuration: null,    // Snap for note duration
             transpose: 0,
             transposeBass: false,
-            transposeBassInstruments: [32, 33, 34, 35, 36, 37, 38, 39] // GM bass programs (0-indexed)
+            transposeBassInstruments: [32, 33, 34, 35, 36, 37, 38, 39], // GM bass programs (0-indexed)
+            autoSplitOnOverlap: false,
+            overlapToleranceRatio: 1 / 32,
         }, options);
 
         // Parse MIDI binary using the project's MidiParser
@@ -391,48 +447,72 @@ class MidiToMusicXML {
             });
         });
 
-        // Decide which channels to split into two staves (e.g., for piano)
-        const channelStaves = {}; // Maps channel to number of staves
-        if (Array.isArray(opts.splitPoints) && opts.splitPoints.length === 2 && activeChannels.length > 0) {
-            // Force 3-stave split on the first non-drum channel
-            const firstMelodicChannel = activeChannels.find(ch => ch !== 9);
-            if (firstMelodicChannel !== undefined) {
-                channelStaves[firstMelodicChannel] = 3;
-            }
-        } else if (opts.splitPoint !== null && typeof opts.splitPoint === 'number' && activeChannels.length > 0) {
-            // Force split on the first non-drum channel if splitPoint is set
-            const firstMelodicChannel = activeChannels.find(ch => ch !== 9);
-            if (firstMelodicChannel !== undefined) {
-                channelStaves[firstMelodicChannel] = 2;
-            }
-        } else if (opts.autoSplit && opts.splitThreshold > 0) {
-            const minSplitRange = (opts.minSplitRange != null && opts.minSplitRange >= 0) 
-                ? opts.minSplitRange 
-                : 30; // default 2.5 octaves
-            
-            activeChannels.forEach(ch => {
-                // Skip drums
-                if (ch === 9) return;
-                
-                const range = channelMaxNote[ch] - channelMinNote[ch];
-                
-                // ⬇️ Hard floor: part dengan rentang < minSplitRange TIDAK akan displit
-                if (range < minSplitRange) return;
-                
-                const progChanges = parsed.header.channelProgramChanges[ch] || [];
-                const initialProgram = progChanges.length > 0 ? progChanges[0].program : 0;
-                
-                const isPiano = initialProgram >= 0 && initialProgram <= 7;
-                const threshold = isPiano ? 14 : opts.splitThreshold;
-                const threshold3Stave = 48;
+        // Decide which channels to split (piano / guitar etc.)
+        const channelStaves = {};
 
-                if (range >= threshold3Stave) {
-                    channelStaves[ch] = 3;
-                } else if (range >= threshold) {
-                    channelStaves[ch] = 2;
+        // (a) Explicit overrides
+        if (Array.isArray(opts.splitPoints) && opts.splitPoints.length === 2 && activeChannels.length > 0) {
+            const firstMelodicChannel = activeChannels.find(ch => ch !== 9);
+            if (firstMelodicChannel !== undefined) channelStaves[firstMelodicChannel] = 3;
+        } else if (opts.splitPoint !== null && typeof opts.splitPoint === 'number' && activeChannels.length > 0) {
+            const firstMelodicChannel = activeChannels.find(ch => ch !== 9);
+            if (firstMelodicChannel !== undefined) channelStaves[firstMelodicChannel] = 2;
+        } else {
+            // (b) Range-based split (requires autoSplit)
+            // (c) Overlap-based split (independent, gated by autoSplitOnOverlap)
+            const overlapTolRatio = (opts.overlapToleranceRatio != null) ? opts.overlapToleranceRatio : 1/32;
+            const overlapTolerance = Math.max(1, Math.round(ppq * overlapTolRatio));
+            const autoSplitOnOverlap = opts.autoSplitOnOverlap !== false;
+            const minSplitRange = (opts.minSplitRange != null && opts.minSplitRange >= 0) ? opts.minSplitRange : 30;
+
+            activeChannels.forEach(ch => {
+                if (ch === 9) return;
+                const notes = channelNotes[ch];
+                if (!notes || notes.length === 0) return;
+
+                const range = channelMaxNote[ch] - channelMinNote[ch];
+
+                // --- (b) Range-based (existing behavior, only if autoSplit) ---
+                let rangeStaves = 0;
+                if (opts.autoSplit && opts.splitThreshold > 0 && range >= minSplitRange) {
+                    const progChanges = parsed.header.channelProgramChanges[ch] || [];
+                    const initialProgram = progChanges.length > 0 ? progChanges[0].program : 0;
+                    const isPiano = initialProgram >= 0 && initialProgram <= 7;
+                    const threshold = isPiano ? 14 : opts.splitThreshold;
+                    if (range >= 48) rangeStaves = 3;
+                    else if (range >= threshold) rangeStaves = 2;
                 }
+
+                // --- (c) Overlap-based (NEW, always on unless disabled) ---
+                let overlapStaves = 0;
+                if (autoSplitOnOverlap && this.hasOverlappingNotes(notes, overlapTolerance)) {
+                    const vc = this.countVoices(notes, overlapTolerance);
+                    if (vc >= 3) overlapStaves = 3;
+                    else if (vc >= 2) overlapStaves = 2;
+                }
+
+                const staves = Math.max(rangeStaves, overlapStaves);
+                if (staves > 1) channelStaves[ch] = staves;
             });
         }
+
+        // ---- Pre-compute note → staff map for split channels ----
+        const channelNoteStaffMap = {};
+        const voiceSepTolerance = Math.max(1, Math.round(ppq * (opts.overlapToleranceRatio ?? 1/32)));
+        activeChannels.forEach(ch => {
+            if (ch === 9) return;
+            const numStaves = channelStaves[ch] || 1;
+
+            if (numStaves > 1) {
+                channelNoteStaffMap[ch] = this.assignNotesToStaves(
+                    channelNotes[ch],
+                    numStaves,
+                    channelMinNote[ch],
+                    channelMaxNote[ch],
+                    voiceSepTolerance
+                );
+            }
+        });
 
         // 2. Identify lyric carrier channel
         let lyricChannelId = (opts._lyricChannelId != null) ? opts._lyricChannelId : -1;
@@ -720,16 +800,10 @@ class MidiToMusicXML {
                     const tieByStaff = {};
                     tieKeys.forEach(noteCode => {
                         const tieInfo = tieContinue[noteCode];
-                        // Determine staff for this tied note
-                        let staff = this.determineStaffForNote(
-                            noteCode, 
-                            ch, 
-                            channelStaves, 
-                            opts, 
-                            channelMinNote, 
-                            channelMaxNote,
-                            channelNotes
-                        );
+                        // Use the staff that was assigned when the tie was created,
+                        // so the continuation stays on the same staff as the start.
+                        
+                        const staff = tieInfo.staff || 1;
                         if (!tieByStaff[staff]) tieByStaff[staff] = [];
                         tieByStaff[staff].push({ noteCode, tieInfo, staff });
                     });
@@ -807,15 +881,20 @@ class MidiToMusicXML {
                     // Konversi tick ke divisi (pembulatan ini yang menyatukan not akor)
                     const xmlStart = Math.round((offsetTicks * divisions) / ppq);
                     
-                    let staff = this.determineStaffForNote(
-                        note.midi, 
-                        ch, 
-                        channelStaves, 
-                        opts, 
-                        channelMinNote, 
-                        channelMaxNote,
-                        channelNotes
-                    );
+                    let staff;
+                    if (channelNoteStaffMap[ch] && channelNoteStaffMap[ch].has(note)) {
+                        staff = channelNoteStaffMap[ch].get(note);
+                    } else {
+                        staff = this.determineStaffForNote(
+                            note.midi,
+                            ch,
+                            channelStaves,
+                            opts,
+                            channelMinNote,
+                            channelMaxNote,
+                            channelNotes
+                        );
+                    }
                     
                     // Kunci unik: posisi waktu + staff
                     const groupKey = `${xmlStart}_${staff}`;
@@ -1093,6 +1172,212 @@ class MidiToMusicXML {
         xml += `</score-partwise>\n`;
 
         return xml;
+    }
+
+    /**
+     * Build an array mapping partIndex → midiTrackId by reading <midi-channel>
+     * from the MusicXML and matching it with the active MIDI tracks.
+     *
+     * @param {string} xmlContent - Result of convert()
+     * @param {Object} [parsedMidi] - Optional result of MidiParser.parse(),
+     *                                used to map channel → track ID
+     * @returns {Array<number|null>} Array of track IDs per part index; null if not found
+     */
+    buildMidiTrackIdByPartIndex(xmlContent, parsedMidi) {
+        if(this.xmlContent == null || this.parsed == null) {
+            return [];
+        }
+        const doc = new DOMParser().parseFromString(xmlContent, "application/xml");
+        const scoreParts = Array.from(doc.querySelectorAll("part-list > score-part"));
+        if (scoreParts.length === 0) return [];
+
+        // Bangun peta: channel (0-based) → track id dari parsedMidi
+        // Track di MidiParser punya properti `channels` = array channel yang dipakai.
+        const channelToTrackId = new Map();
+        if (parsedMidi && Array.isArray(parsedMidi.tracks)) {
+            parsedMidi.tracks.forEach((t, idx) => {
+                if (!t.notes || t.notes.length === 0) return;   // skip meta track
+                if (Array.isArray(t.channels)) {
+                    t.channels.forEach(ch => {
+                        // Satu channel bisa dipakai beberapa track → ambil yang pertama
+                        if (!channelToTrackId.has(ch)) channelToTrackId.set(ch, idx);
+                    });
+                }
+            });
+        }
+
+        // Untuk setiap part, baca <midi-channel> (1-based) dan petakan ke track
+        return scoreParts.map(sp => {
+            const chEl = sp.querySelector("midi-instrument midi-channel");
+            if (!chEl) return null;
+            const ch1 = parseInt(chEl.textContent, 10);       // 1..16
+            if (!Number.isFinite(ch1)) return null;
+            const ch0 = ch1 - 1;                              // 0..15
+            return channelToTrackId.has(ch0) ? channelToTrackId.get(ch0) : null;
+        });
+    }
+
+    /**
+     * Build an array mapping partIndex → MIDI channel (0-based) by reading
+     * <midi-channel> from the MusicXML. The array order matches the order of
+     * <score-part> elements in <part-list>, so the array index = partIndex.
+     *
+     * @param {string} xmlContent - Result of convert()
+     * @returns {Array<number|null>} Array of channels (0-based) per part; null if not found
+     */
+    buildMidiChannelByPartIndex(xmlContent) {
+        if (!xmlContent) return [];
+
+        const doc = new DOMParser().parseFromString(xmlContent, "application/xml");
+        const scoreParts = Array.from(doc.querySelectorAll("part-list > score-part"));
+        if (scoreParts.length === 0) return [];
+
+        return scoreParts.map(sp => {
+            const chEl = sp.querySelector("midi-instrument midi-channel");
+            if (!chEl) return null;
+            const ch1 = parseInt(chEl.textContent, 10);   // 1..16
+            if (!Number.isFinite(ch1)) return null;
+            return ch1 - 1;                                // 0..15
+        });
+    }
+
+    /**
+     * Get MIDI track IDs mapped by part index.
+     *
+     * @returns {Array<number|null>} Array of track IDs per part index
+     */
+    getMidiTrackId() {
+        return this.buildMidiTrackIdByPartIndex(this.xmlContent, this.parsed);
+    }
+
+    /**
+     * Get MIDI channels per part index.
+     *
+     * @param {boolean} [oneBased=false] - If true, return channels as 1..16 instead of 0..15
+     * @returns {Array<number|null>} Array of channels per part; null if not found
+     */
+    getMidiChannel(oneBased = false) {
+        const chs = this.buildMidiChannelByPartIndex(this.xmlContent);
+        if (!oneBased) return chs;
+        return chs.map(c => (c === null ? null : c + 1));
+    }
+
+        /**
+     * Detects non-chord overlaps: a chord-group that starts while a previous
+     * chord-group is still sounding. Notes at the exact same tick belong to
+     * the same group and are treated as one chord event.
+     *
+     * @param {Array} notes
+     * @param {number} [tolerance=0]
+     * @returns {boolean}
+     */
+    hasOverlappingNotes(notes, tolerance = 0) {
+        if (!notes || notes.length < 2) return false;
+
+        const groups = this._groupByStartTick(notes);
+        let maxEndTick = -Infinity;
+        for (const g of groups) {
+            if (g.ticks < maxEndTick - tolerance) return true;
+            if (g.endTick > maxEndTick) maxEndTick = g.endTick;
+        }
+        return false;
+    }
+
+    /**
+     * Counts minimum number of monophonic voices (chord = 1 voice event).
+     */
+    countVoices(notes, tolerance = 0) {
+        if (!notes || notes.length === 0) return 0;
+        const groups = this._groupByStartTick(notes);
+        const voiceEnds = [];
+        for (const g of groups) {
+            let assigned = false;
+            for (let v = 0; v < voiceEnds.length; v++) {
+                if (voiceEnds[v] <= g.ticks + tolerance) {
+                    voiceEnds[v] = g.endTick;
+                    assigned = true;
+                    break;
+                }
+            }
+            if (!assigned) voiceEnds.push(g.endTick);
+        }
+        return voiceEnds.length;
+    }
+
+    /** Internal helper: group notes by exact start tick. */
+    _groupByStartTick(notes) {
+        const map = new Map();
+        notes.forEach(n => {
+            if (!map.has(n.ticks)) map.set(n.ticks, []);
+            map.get(n.ticks).push(n);
+        });
+        return Array.from(map.entries())
+            .map(([ticks, arr]) => ({
+                ticks,
+                notes: arr,
+                endTick: Math.max(...arr.map(n => n.ticks + n.durationTicks)),
+                avgPitch: arr.reduce((s, n) => s + n.midi, 0) / arr.length
+            }))
+            .sort((a, b) => a.ticks - b.ticks);
+    }
+
+    /**
+     * Assigns each note to a staff (1 = top ... N = bottom).
+     * Chord-notes (same start tick) always land on the SAME staff.
+     * Higher chord-groups are processed first → priority for top staff.
+     */
+    assignNotesToStaves(notes, numStaves, minNote, maxNote, tolerance = 0) {
+        const noteStaffMap = new Map();
+        if (!notes || notes.length === 0) return noteStaffMap;
+        if (numStaves < 2) {
+            notes.forEach(n => noteStaffMap.set(n, 1));
+            return noteStaffMap;
+        }
+
+        const groups = this._groupByStartTick(notes);
+
+        // High chord-groups first so they win the top staff.
+        groups.sort((a, b) => {
+            if (a.ticks !== b.ticks) return a.ticks - b.ticks;
+            return b.avgPitch - a.avgPitch;
+        });
+
+        const range = Math.max(1, maxNote - minNote);
+        const idealStaff = (pitch) => {
+            const rel = (maxNote - pitch) / range;
+            return Math.max(1, Math.min(numStaves, Math.floor(rel * numStaves) + 1));
+        };
+
+        const staffEndTick = new Array(numStaves + 1).fill(-Infinity);
+
+        for (const g of groups) {
+            const ideal = idealStaff(g.avgPitch);
+            const available = [];
+            for (let s = 1; s <= numStaves; s++) {
+                if (staffEndTick[s] <= g.ticks + tolerance) available.push(s);
+            }
+
+            let assigned;
+            if (available.length === 0) {
+                let minEnd = Infinity;
+                for (let s = 1; s <= numStaves; s++) {
+                    if (staffEndTick[s] < minEnd) { minEnd = staffEndTick[s]; assigned = s; }
+                }
+            } else {
+                assigned = available[0];
+                let bestDist = Math.abs(assigned - ideal);
+                for (let i = 1; i < available.length; i++) {
+                    const d = Math.abs(available[i] - ideal);
+                    if (d < bestDist) { bestDist = d; assigned = available[i]; }
+                }
+            }
+
+            // ALL notes in this chord-group go to the SAME staff.
+            g.notes.forEach(n => noteStaffMap.set(n, assigned));
+            staffEndTick[assigned] = g.endTick;
+        }
+
+        return noteStaffMap;
     }
 
     determineStaffForNote(noteCode, ch, channelStaves, opts, channelMinNote, channelMaxNote, channelNotes) {
