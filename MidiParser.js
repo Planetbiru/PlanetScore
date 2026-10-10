@@ -2,7 +2,7 @@
  * MidiParser provides static methods to decode binary MIDI file data into a structured JavaScript object.
  * It handles MIDI Format 0 and 1, Note On/Off events, Program Changes, and various Meta events.
  * 
- * @author Kamshory
+ * @author Kamshory <kamshory@gmail.com>
  */
 class MidiParser {
     /**
@@ -123,20 +123,31 @@ class MidiParser {
                     // Note On with velocity 0 is treated as Note Off
 
                     if (type === 0x80 || velocity === 0) {
-                        if (activeNotes[key]) {
-                            const n = activeNotes[key];
+                        // Cek apakah ada nada aktif untuk key ini
+                        if (activeNotes[key] && activeNotes[key].length > 0) {
+                            // Ambil nada yang paling awal dimulai (FIFO)
+                            const n = activeNotes[key].shift();
                             n.durationTicks = tick - n.ticks;
                             notes.push(n);
-                            delete activeNotes[key];
+                            
+                            // Jika sudah tidak ada nada aktif, hapus key
+                            if (activeNotes[key].length === 0) {
+                                delete activeNotes[key];
+                            }
                         }
                     } else {
-                        activeNotes[key] = {
+                        // Inisialisasi array jika belum ada
+                        if (!activeNotes[key]) {
+                            activeNotes[key] = [];
+                        }
+                        // Masukkan nada baru ke dalam array
+                        activeNotes[key].push({
                             midi: pitch,
                             ticks: tick,
                             velocity: velocity / 127,
                             channel,
                             instrument: channelPrograms[channel]
-                        };
+                        });
                     }
                 }
 
@@ -255,9 +266,11 @@ class MidiParser {
             }
 
             // Close any notes that didn't receive a Note Off before the track end
-            Object.values(activeNotes).forEach(n => {
-                n.durationTicks = tick - n.ticks;
-                notes.push(n);
+            Object.values(activeNotes).forEach(arr => {
+                arr.forEach(n => {
+                    n.durationTicks = tick - n.ticks;
+                    notes.push(n);
+                });
             });
 
             // Track the highest tick seen across all tracks

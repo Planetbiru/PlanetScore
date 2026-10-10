@@ -49,6 +49,14 @@ the composer's export/playback layer.
 
 ### Fixed
 
+- **`MidiParser`: notes lost when adjacent notes share a boundary tick.**
+  When two consecutive notes on the same channel and pitch shared a tick
+  (note A's Note-Off tick exactly matches note B's Note-On tick), the
+  parser's `activeNotes` map (keyed only by `channel_pitch`) overwrote
+  note A with note B before note A's Note-Off was processed, causing note A
+  to be permanently dropped. The map now stores an array of active notes per
+  key, and incoming Note-Off events consume them in FIFO order (`shift()`),
+  preserving both overlapping and perfectly adjacent notes.
 - **`MidiToMusicXML`: tie continuation lost its target staff.** When a note
   was tied across a barline, the continuation re-derived the staff from the
   pitch instead of inheriting the staff used by the tie's starting note.
