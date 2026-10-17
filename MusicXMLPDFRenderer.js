@@ -214,10 +214,32 @@ class MusicXMLPDFRenderer {
             throw new Error("No MusicXML data provided.");
         }
 
-        const scale = 1.0;
-        this.lineSpacing = this.baseLineSpacing * scale;
-        this.staffSpacing = this.baseStaffSpacing * scale;
+        this.lineSpacing = this.baseLineSpacing;
+        this.staffSpacing = this.baseStaffSpacing;
 
+        const parsed = this._parseMusicXML(xmlText);
+        if (!parsed) return;
+
+        this.xmlDoc              = parsed.xmlDoc;
+        this.partMeasures        = parsed.partMeasures;
+        this.partMeasureMap      = parsed.partMeasureMap;
+        this.partStaffMap        = parsed.partStaffMap;
+        this.totalSystemStaves   = parsed.totalSystemStaves;
+        this.totalMeasures       = parsed.totalMeasures;
+        this.renderMeasures      = parsed.renderMeasures;
+
+        this._computeLayout();
+        this._drawHeader();
+        this._initializeStaffState();
+
+        for (let measureIdx = 0; measureIdx < this.totalMeasures; measureIdx++) {
+            this._renderMeasure(measureIdx);
+            this.currentX += this.measureWidth;
+            this._drawPageNumbers();
+        }
+    }
+    
+    _parseMusicXML(xmlText) {
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(xmlText, "application/xml");
 
@@ -227,7 +249,7 @@ class MusicXMLPDFRenderer {
         }
 
         const parts = Array.from(xmlDoc.querySelectorAll("part"));
-        if (parts.length === 0) return;
+        if (parts.length === 0) return null;
 
         const partMeasures = parts.map(p => Array.from(p.querySelectorAll("measure")));
         const partMeasureMap = partMeasures.map(mList => {
@@ -239,18 +261,18 @@ class MusicXMLPDFRenderer {
             return map;
         });
 
-        const maxMeasureNumber = Math.max(1, ...partMeasures.flatMap(mList => mList.map(m => parseInt(m.getAttribute("number") || "1", 10) || 1)));
+        const maxMeasureNumber = Math.max(1, ...partMeasures.flatMap(mList =>
+            mList.map(m => parseInt(m.getAttribute("number") || "1", 10) || 1)
+        ));
         let totalMeasures = maxMeasureNumber;
-        const isSinglePart = this.isSinglePartRender(parts);
+
+        const isSinglePart  = this.isSinglePartRender(parts);
         const useCompression = this.compressSilentMeasure && isSinglePart;
         let renderMeasures = null;
 
         if (useCompression) {
-            renderMeasures = this.buildCompressedMeasureList(
-                partMeasureMap[0],
-                totalMeasures
-            );
-            totalMeasures = renderMeasures.length;
+            renderMeasures = this.buildCompressedMeasureList(partMeasureMap[0], totalMeasures);
+            totalMeasures  = renderMeasures.length;
         }
 
         const partStaffMap = [];
@@ -264,838 +286,824 @@ class MusicXMLPDFRenderer {
             }
             partStaffMap.push({
                 partIndex: pIdx,
-                partNode: partNode,
-                numStaves: numStaves,
+                partNode,
+                numStaves,
                 startStaffId: totalSystemStaves + 1
             });
             totalSystemStaves += numStaves;
         });
 
-        const hasLyrics = xmlDoc.querySelector("lyric") !== null;
+        return {
+            xmlDoc, partMeasures, partMeasureMap, partStaffMap,
+            totalSystemStaves, totalMeasures, renderMeasures
+        };
+    }
 
-        // Lebar efektif sistem. Angka 60 adalah ruang untuk clef/key/time di awal sistem.
-        const availableWidth = this.PAGE_WIDTH - this.marginLeft - this.marginRight - 60;
+    _computeLayout() {
+        const scale = 1.0;
 
-        const idealMeasureWidth = this.idealMeasureWidth ?? (hasLyrics ? 200 : 220);
-        const minMeasureWidth = this.minMeasureWidth ?? 150;
+        this.hasLyrics = this.xmlDoc.querySelector("lyric") !== null;
+        this.availableWidth = this.PAGE_WIDTH - this.marginLeft - this.marginRight - 60;
+
+        const idealMeasureWidth = this.idealMeasureWidth ?? (this.hasLyrics ? 200 : 220);
+        const minMeasureWidth   = this.minMeasureWidth ?? 150;
 
         let maxMeasuresPerLine;
-
         if (this.maxMeasuresPerLine != null) {
             maxMeasuresPerLine = this.maxMeasuresPerLine;
         } else {
-            const isLandscape = this.PAGE_WIDTH > this.PAGE_HEIGHT;
-
-            // A4 portrait = 595.28 pt, A4 landscape = 841.89 pt
+            const isLandscape    = this.PAGE_WIDTH > this.PAGE_HEIGHT;
             const referenceWidth = isLandscape ? 841.89 : 595.28;
-
-            const baseMax = isLandscape
-                ? (hasLyrics ? 5 : 6)
-                : (hasLyrics ? 3 : 4);
-
-            maxMeasuresPerLine = Math.max(
-                1,
-                Math.round(baseMax * (this.PAGE_WIDTH / referenceWidth))
-            );
+            const baseMax        = isLandscape
+                ? (this.hasLyrics ? 5 : 6)
+                : (this.hasLyrics ? 3 : 4);
+            maxMeasuresPerLine = Math.max(1, Math.round(baseMax * (this.PAGE_WIDTH / referenceWidth)));
         }
 
-        const idealCount = Math.floor(availableWidth / idealMeasureWidth);
-        const minWidthCount = Math.max(1, Math.floor(availableWidth / minMeasureWidth));
+        const idealCount    = Math.floor(this.availableWidth / idealMeasureWidth);
+        const minWidthCount = Math.max(1, Math.floor(this.availableWidth / minMeasureWidth));
+        this.measuresPerLine = Math.max(1, Math.min(idealCount, maxMeasuresPerLine, minWidthCount));
 
-        let mpl = Math.max(
-            1,
-            Math.min(idealCount, maxMeasuresPerLine, minWidthCount)
-        );
-
-        this.measuresPerLine = mpl;
-
-        let calculatedStaffSystemHeight = 0;
         const staffHeight = 4 * this.lineSpacing;
-        for (let i = 0; i < partStaffMap.length; i++) {
-            const pInfo = partStaffMap[i];
-            calculatedStaffSystemHeight += pInfo.numStaves * staffHeight;
-            calculatedStaffSystemHeight += Math.max(0, pInfo.numStaves - 1) * this.staffSpacing * scale;
-            if (i < partStaffMap.length - 1) {
-                calculatedStaffSystemHeight += this.partSpacing * scale;
+        let systemHeight = 0;
+        for (let i = 0; i < this.partStaffMap.length; i++) {
+            const pInfo = this.partStaffMap[i];
+            systemHeight += pInfo.numStaves * staffHeight;
+            systemHeight += Math.max(0, pInfo.numStaves - 1) * this.staffSpacing * scale;
+            if (i < this.partStaffMap.length - 1) {
+                systemHeight += this.partSpacing * scale;
             }
         }
-        if (totalSystemStaves === 0) calculatedStaffSystemHeight = staffHeight;
+        if (this.totalSystemStaves === 0) systemHeight = staffHeight;
+        this.calculatedStaffSystemHeight = systemHeight;
 
-        const staffBottomExtra = Math.max(0, this.lyricYOffset - (4 * this.lineSpacing) + 6);
-        const spacingForThisSystem = hasLyrics
+        const staffBottomExtra    = Math.max(0, this.lyricYOffset - (4 * this.lineSpacing) + 6);
+        const spacingForThisSystem = this.hasLyrics
             ? (this.lyricsSystemSpacing ?? this.systemSpacing)
             : this.systemSpacing;
+        const lyricPadding = this.hasLyrics ? staffBottomExtra * scale : 0;
+        this.rowSpacing    = systemHeight + lyricPadding + spacingForThisSystem * scale;
 
-        const lyricPadding = hasLyrics ? staffBottomExtra * scale : 0;
+        this.leftMargin    = this.marginLeft + 45;
+        this.rightMargin   = this.marginRight;
+        this.systemStartX  = this.marginLeft;
+        this.usableWidth   = this.PAGE_WIDTH - this.leftMargin - this.rightMargin;
+        this.measureWidth  = this.usableWidth / this.measuresPerLine;
+    }
 
-        this.rowSpacing = calculatedStaffSystemHeight
-                        + lyricPadding
-                        + spacingForThisSystem * scale;
+    _drawHeader() {
+        const xmlDoc = this.xmlDoc;
+        const parts  = Array.from(xmlDoc.querySelectorAll("part"));
 
         const songTitle = xmlDoc.querySelector("work-title")?.textContent || "Untitled Score";
-        const composer = xmlDoc.querySelector("creator[type='composer']")?.textContent || "";
-        const partName = parts.length === 1 ? (xmlDoc.querySelector("part-name")?.textContent || "Score") : "Full Score";
+        const composer  = xmlDoc.querySelector("creator[type='composer']")?.textContent || "";
+        const partName  = parts.length === 1
+            ? (xmlDoc.querySelector("part-name")?.textContent || "Score")
+            : "Full Score";
 
-        const partDetails = {};
-        partStaffMap.forEach(pInfo => {
+        this.partDetails = {};
+        this.partStaffMap.forEach(pInfo => {
             const partId = pInfo.partNode.getAttribute('id');
-            const partListEntry = xmlDoc.querySelector(`part-list score-part[id="${partId}"]`);
-            const name = partListEntry?.querySelector('part-name')?.textContent || `Part ${pInfo.partIndex + 1}`;
-            const abbr = partListEntry?.querySelector('part-abbreviation')?.textContent || name.substring(0, 4);
-            partDetails[pInfo.partIndex] = { name, abbr };
+            const entry  = xmlDoc.querySelector(`part-list score-part[id="${partId}"]`);
+            const name   = entry?.querySelector('part-name')?.textContent || `Part ${pInfo.partIndex + 1}`;
+            const abbr   = entry?.querySelector('part-abbreviation')?.textContent || name.substring(0, 4);
+            this.partDetails[pInfo.partIndex] = { name, abbr };
         });
 
         let currentY = this.marginTop + 20;
 
-        this.drawText(
-            this.PAGE_WIDTH / 2,
-            currentY,
-            songTitle,
-            22,
-            this.engraverColor,
-            "center",
-            true,
-            this.FONT_SERIF
-        );
+        this.drawText(this.PAGE_WIDTH / 2, currentY, songTitle, 22, this.engraverColor, "center", true, this.FONT_SERIF);
 
         currentY += 15;
         const metadataY = currentY;
 
         if (composer) {
+            this.drawText(this.PAGE_WIDTH - this.marginRight, metadataY, composer, 11, this.engraverColor, "right", false, this.FONT_SANS_SERIF);
+        }
+        this.drawText(this.marginLeft, metadataY, partName, 12, this.engraverColor, "left", false, this.FONT_SANS_SERIF);
+
+        currentY += 7;
+        currentY += this.firstSystemGap;
+
+        this.currentY = currentY;
+        this.currentX = this.leftMargin;
+    }
+
+    _initializeStaffState() {
+        this.staffState = {};
+        for (let s = 1; s <= this.totalSystemStaves; s++) {
+            this.staffState[s] = { clef: "G", fifths: 0, beats: 4, beatType: 4, timeSymbol: null, divisions: 4 };
+        }
+        if (this.autoClef) {
+            this.applyAutoClefToStaffState(this.partStaffMap, this.partMeasureMap, this.staffState);
+        }
+        this.activeTies = {};
+    }
+
+    _renderMeasure(measureIdx) {
+        const isSystemStart = (measureIdx % this.measuresPerLine === 0);
+        const renderMeasure = this.renderMeasures ? this.renderMeasures[measureIdx] : null;
+        const displayMeasureNumber = renderMeasure ? renderMeasure.number : measureIdx + 1;
+
+        this._updateStaffStateFromMeasure(measureIdx, renderMeasure);
+
+        if (isSystemStart) {
+            this._handleSystemStartPageBreak(measureIdx);
+            this.currentX = this.leftMargin;
+            this._drawSystemStart(measureIdx, displayMeasureNumber, renderMeasure);
+        }
+
+        this._drawRightBarLines(measureIdx);
+        this._drawTempoForMeasure(measureIdx, renderMeasure);
+        this._renderMeasureContent(measureIdx, renderMeasure);
+    }
+
+    _updateStaffStateFromMeasure(measureIdx, renderMeasure) {
+        this.partStaffMap.forEach(pInfo => {
+            let mNode;
+            if (renderMeasure) {
+                if (renderMeasure.node) {
+                    mNode = renderMeasure.node;
+                } else if (renderMeasure.compressedCount > 0) {
+                    mNode = this.partMeasureMap[pInfo.partIndex].get(renderMeasure.originalStart);
+                }
+            } else {
+                mNode = this.partMeasureMap[pInfo.partIndex].get(measureIdx + 1);
+            }
+            if (!mNode) return;
+
+            const attrNode = mNode.querySelector("attributes");
+            if (!attrNode) return;
+
+            const divisionsEl = attrNode.querySelector("divisions");
+            if (divisionsEl) {
+                const divVal = parseInt(divisionsEl.textContent, 10);
+                if (Number.isFinite(divVal) && divVal > 0) {
+                    for (let s = 0; s < pInfo.numStaves; s++) {
+                        const staffId = pInfo.startStaffId + s;
+                        if (this.staffState[staffId]) this.staffState[staffId].divisions = divVal;
+                    }
+                }
+            }
+
+            const fifthsVal = parseInt(attrNode.querySelector("key fifths")?.textContent || "0");
+            const timeNode  = attrNode.querySelector("time");
+            for (let s = 0; s < pInfo.numStaves; s++) {
+                const staffId = pInfo.startStaffId + s;
+                if (!this.staffState[staffId]) continue;
+                this.staffState[staffId].fifths = fifthsVal;
+                if (timeNode) {
+                    this.staffState[staffId].beats      = parseInt(timeNode.querySelector("beats")?.textContent || "4");
+                    this.staffState[staffId].beatType   = parseInt(timeNode.querySelector("beat-type")?.textContent || "4");
+                    this.staffState[staffId].timeSymbol = timeNode.getAttribute("symbol");
+                }
+            }
+            attrNode.querySelectorAll("clef").forEach(clefNode => {
+                const clefNum = parseInt(clefNode.getAttribute("number") || "1");
+                const sign    = clefNode.querySelector("sign")?.textContent;
+                const staffId = pInfo.startStaffId + (clefNum - 1);
+                if (this.staffState[staffId] && sign) {
+                    if (measureIdx === 0 && this.staffState[staffId]._clefAutoApplied) return;
+                    this.staffState[staffId].clef = sign;
+                }
+            });
+        });
+    }
+
+    _handleSystemStartPageBreak(measureIdx) {
+        if (measureIdx > 0) {
+            const nextSystemTop    = this.currentY + this.rowSpacing;
+            const nextSystemBottom = nextSystemTop + this.calculatedStaffSystemHeight;
+
+            if (nextSystemBottom > this.PAGE_HEIGHT - this.marginBottom) {
+                this.doc.addPage();
+                this.currentY = this.marginTopOtherPages;
+            } else {
+                this.currentY = nextSystemTop;
+            }
+        }
+    }
+
+    _drawSystemStart(measureIdx, displayMeasureNumber, renderMeasure) {
+        const scale        = 1.0;
+        const staffHeight  = 4 * this.lineSpacing;
+        const currentY     = this.currentY;
+        const leftMargin   = this.leftMargin;
+        const systemStartX = this.systemStartX;
+
+        const remainingMeasuresInSystem = Math.min(this.measuresPerLine, this.totalMeasures - measureIdx);
+        const systemRowWidth = (leftMargin - systemStartX) + (remainingMeasuresInSystem * this.measureWidth);
+
+        this.currentMeasureStartX = this.currentX;
+        this.currentMeasureRightX = this.currentX + this.measureWidth;
+
+        this.drawSystemStartLine(systemStartX, currentY, this.calculatedStaffSystemHeight);
+
+        let currentStaffYOffset = 0;
+        let previousPartIndex   = -1;
+        for (let s = 1; s <= this.totalSystemStaves; s++) {
+            const pInfo = this.partStaffMap.find(p => s >= p.startStaffId && s < p.startStaffId + p.numStaves);
+            if (!pInfo) continue;
+
+            const localStaff = (s - pInfo.startStaffId) + 1;
+            if (pInfo.partIndex !== previousPartIndex && previousPartIndex !== -1) {
+                currentStaffYOffset += this.partSpacing * scale;
+            }
+            const sY = currentY + currentStaffYOffset;
+
+            this.drawStaffLines(systemStartX, sY, systemRowWidth);
+            this.drawBarLine(leftMargin, sY, false, staffHeight);
+
+            const state  = this.staffState[s];
+            const clefX  = systemStartX + 5;
+            this.drawClef(state.clef, clefX, sY);
+
+            const keySigX = clefX + 20;
+            this.drawKeySignature(keySigX, sY, state.fifths, state.clef);
+
+            const timeSigX = keySigX + 6;
+            this.drawTimeSignature(timeSigX, sY, state.beats, state.beatType, state.timeSymbol);
+
             this.drawText(
-                this.PAGE_WIDTH - this.marginRight,
-                metadataY,
-                composer,
-                11,
-                this.engraverColor,
-                "right",
-                false,
-                this.FONT_SANS_SERIF
+                systemStartX - 16,
+                sY + (4.05 * this.lineSpacing),
+                this.partDetails[pInfo.partIndex].abbr,
+                9, this.engraverColor, "left", false, this.FONT_SANS_SERIF, 90
             );
+
+            currentStaffYOffset += (4 * this.lineSpacing);
+            if (localStaff < pInfo.numStaves) currentStaffYOffset += this.staffSpacing * scale;
+            previousPartIndex = pInfo.partIndex;
+        }
+
+        // Grand-staff brace
+        let braceYOffset = 0;
+        this.partStaffMap.forEach((pInfo, index) => {
+            const partHeight = pInfo.numStaves * (4 * this.lineSpacing)
+                            + Math.max(0, pInfo.numStaves - 1) * this.staffSpacing * scale;
+            if (pInfo.numStaves >= 2) {
+                const topY = currentY + braceYOffset;
+                this.drawGrandStaffBrace(systemStartX - 4, topY, topY + partHeight);
+            }
+            braceYOffset += partHeight
+                + (index < this.partStaffMap.length - 1 ? this.partSpacing * scale : 0);
+        });
+
+        // Label nomor measure di atas sistem
+        const systemLabel = (renderMeasure && renderMeasure.compressedCount > 1)
+            ? `${renderMeasure.originalStart}–${renderMeasure.originalEnd}`
+            : `${displayMeasureNumber}`;
+        this.drawText(systemStartX, currentY - 14, systemLabel, 10, this.subtitleColor, "left", true, this.FONT_SANS_SERIF);
+    }
+
+    _drawRightBarLines(measureIdx) {
+        const scale      = 1.0;
+        const staffHeight = 4 * this.lineSpacing;
+        const isLastMeasureInScore = (measureIdx === this.totalMeasures - 1);
+
+        let rightBarOffset = 0;
+        let rightPrevPart  = -1;
+        for (let s = 1; s <= this.totalSystemStaves; s++) {
+            const pInfo = this.partStaffMap.find(p => s >= p.startStaffId && s < (p.startStaffId + p.numStaves));
+            if (!pInfo) continue;
+
+            if (pInfo.partIndex !== rightPrevPart && rightPrevPart !== -1) {
+                rightBarOffset += this.partSpacing * scale;
+            }
+            const sY = this.currentY + rightBarOffset;
+            this.drawBarLine(this.currentX + this.measureWidth, sY, isLastMeasureInScore, staffHeight);
+
+            rightBarOffset += (4 * this.lineSpacing);
+            const localStaff = (s - pInfo.startStaffId) + 1;
+            if (localStaff < pInfo.numStaves) rightBarOffset += this.staffSpacing * scale;
+            rightPrevPart = pInfo.partIndex;
+        }
+    }
+
+    _drawTempoForMeasure(measureIdx, renderMeasure) {
+        const tempoMeasureNumber = renderMeasure ? renderMeasure.number : (measureIdx + 1);
+        const tempoMeasureNode   = this.partMeasureMap[0].get(tempoMeasureNumber);
+        if (!tempoMeasureNode) return;
+
+        const tempoEntries = this._collectTempoEntries(tempoMeasureNode);
+        if (tempoEntries.length === 0) return;
+
+        tempoEntries.sort((a, b) => a.offsetDiv - b.offsetDiv);
+
+        const divisionsForTempo = this.staffState[1] ? this.staffState[1].divisions : 4;
+        const beatsForTempo     = this.staffState[1] ? this.staffState[1].beats     : 4;
+        const beatTypeForTempo  = this.staffState[1] ? this.staffState[1].beatType  : 4;
+        const measureDivsForTempo =
+            (beatsForTempo * 4 / beatTypeForTempo) * divisionsForTempo;
+
+        const gs     = this.GLOBAL_SCALE ?? 1.0;
+        const tempoY = this.currentY - 6;
+        const MIN_GAP = 8 * gs;
+
+        let lastRightX = -Infinity;
+        tempoEntries.forEach(t => {
+            const offsetRatio = (measureDivsForTempo > 0) ? (t.offsetDiv / measureDivsForTempo) : 0;
+            let tempoX = this.currentX + offsetRatio * this.measureWidth + 4 * gs;
+
+            const estimatedWidth = (12 + String(Math.round(t.bpm)).length * 6) * gs;
+            if (tempoX < lastRightX + MIN_GAP) tempoX = lastRightX + MIN_GAP;
+
+            this._drawTempoMark(t, tempoX, tempoY, gs);
+            lastRightX = tempoX + estimatedWidth;
+        });
+    }
+
+    _collectTempoEntries(tempoMeasureNode) {
+        const entries = [];
+        tempoMeasureNode.querySelectorAll("direction").forEach(dir => {
+            let bpm = null, beatUnit = 'quarter', dots = 0;
+
+            const metroNode = dir.querySelector("metronome");
+            if (metroNode) {
+                const perMin = metroNode.querySelector("per-minute");
+                if (perMin) bpm = parseFloat(perMin.textContent);
+                const bu = metroNode.querySelector("beat-unit");
+                if (bu) beatUnit = bu.textContent;
+                dots = metroNode.querySelectorAll("beat-unit-dot").length;
+            } else {
+                const soundNode = dir.querySelector("sound[tempo]");
+                if (soundNode) bpm = parseFloat(soundNode.getAttribute("tempo"));
+            }
+            if (bpm === null || isNaN(bpm)) return;
+
+            let offsetDiv = 0;
+            const offsetNode = dir.querySelector("offset");
+            if (offsetNode) {
+                const v = parseFloat(offsetNode.textContent);
+                if (Number.isFinite(v)) offsetDiv = v;
+            }
+            entries.push({ bpm, beatUnit, dots, offsetDiv });
+        });
+        return entries;
+    }
+
+    _drawTempoMark(t, tempoX, tempoY, gs) {
+        const noteX    = tempoX;
+        const noteY    = tempoY - 1.5;
+        const rx       = 3.4 * gs;
+        const ry       = 2.2 * gs;
+        const stemX    = noteX + rx * 0.85;
+        const stemTopY = noteY - 13 * gs;
+
+        if (t.beatUnit === "half") {
+            this.doc.setDrawColor(...this.engraverColor);
+            this.doc.setFillColor(...this.engraverColor);
+            this.doc.setLineWidth(0.9 * gs);
+            this.drawSVGEllipse(noteX, noteY, rx - 0.4, ry - 0.4, false, 'solid', -20);
+            this.doc.setLineWidth(1.0 * gs);
+            this.doc.line(stemX, noteY - 0.5, stemX, stemTopY);
+        } else if (t.beatUnit === "eighth") {
+            this.doc.setFillColor(...this.engraverColor);
+            this.doc.setDrawColor(...this.engraverColor);
+            this.drawSVGEllipse(noteX, noteY, rx, ry, true, 'none', -20);
+            this.doc.setLineWidth(1.0 * gs);
+            this.doc.line(stemX, noteY - 0.5, stemX, stemTopY);
+            this.doc.line(stemX, stemTopY, stemX + 6 * gs, stemTopY + 6 * gs);
+        } else {
+            this.doc.setFillColor(...this.engraverColor);
+            this.doc.setDrawColor(...this.engraverColor);
+            this.drawSVGEllipse(noteX, noteY, rx, ry, true, 'none', -20);
+            this.doc.setLineWidth(1.0 * gs);
+            this.doc.line(stemX, noteY - 0.5, stemX, stemTopY);
         }
 
         this.drawText(
-            this.marginLeft,
-            metadataY,
-            partName,
-            12,
-            this.engraverColor,
-            "left",
-            false,
-            this.FONT_SANS_SERIF
+            stemX + 5 * gs, tempoY,
+            `= ${Math.round(t.bpm)}`,
+            11, this.engraverColor, "left", true, this.FONT_SERIF
+        );
+    }
+
+    _drawTempoForMeasure(measureIdx, renderMeasure) {
+        const tempoMeasureNumber = renderMeasure ? renderMeasure.number : (measureIdx + 1);
+        const tempoMeasureNode   = this.partMeasureMap[0].get(tempoMeasureNumber);
+        if (!tempoMeasureNode) return;
+
+        const tempoEntries = this._collectTempoEntries(tempoMeasureNode);
+        if (tempoEntries.length === 0) return;
+
+        tempoEntries.sort((a, b) => a.offsetDiv - b.offsetDiv);
+
+        const divisionsForTempo = this.staffState[1] ? this.staffState[1].divisions : 4;
+        const beatsForTempo     = this.staffState[1] ? this.staffState[1].beats     : 4;
+        const beatTypeForTempo  = this.staffState[1] ? this.staffState[1].beatType  : 4;
+        const measureDivsForTempo =
+            (beatsForTempo * 4 / beatTypeForTempo) * divisionsForTempo;
+
+        const gs     = this.GLOBAL_SCALE ?? 1.0;
+        const tempoY = this.currentY - 6;
+        const MIN_GAP = 8 * gs;
+
+        let lastRightX = -Infinity;
+        tempoEntries.forEach(t => {
+            const offsetRatio = (measureDivsForTempo > 0) ? (t.offsetDiv / measureDivsForTempo) : 0;
+            let tempoX = this.currentX + offsetRatio * this.measureWidth + 4 * gs;
+
+            const estimatedWidth = (12 + String(Math.round(t.bpm)).length * 6) * gs;
+            if (tempoX < lastRightX + MIN_GAP) tempoX = lastRightX + MIN_GAP;
+
+            this._drawTempoMark(t, tempoX, tempoY, gs);
+            lastRightX = tempoX + estimatedWidth;
+        });
+    }
+
+    _collectTempoEntries(tempoMeasureNode) {
+        const entries = [];
+        tempoMeasureNode.querySelectorAll("direction").forEach(dir => {
+            let bpm = null, beatUnit = 'quarter', dots = 0;
+
+            const metroNode = dir.querySelector("metronome");
+            if (metroNode) {
+                const perMin = metroNode.querySelector("per-minute");
+                if (perMin) bpm = parseFloat(perMin.textContent);
+                const bu = metroNode.querySelector("beat-unit");
+                if (bu) beatUnit = bu.textContent;
+                dots = metroNode.querySelectorAll("beat-unit-dot").length;
+            } else {
+                const soundNode = dir.querySelector("sound[tempo]");
+                if (soundNode) bpm = parseFloat(soundNode.getAttribute("tempo"));
+            }
+            if (bpm === null || isNaN(bpm)) return;
+
+            let offsetDiv = 0;
+            const offsetNode = dir.querySelector("offset");
+            if (offsetNode) {
+                const v = parseFloat(offsetNode.textContent);
+                if (Number.isFinite(v)) offsetDiv = v;
+            }
+            entries.push({ bpm, beatUnit, dots, offsetDiv });
+        });
+        return entries;
+    }
+
+    _drawTempoMark(t, tempoX, tempoY, gs) {
+        const noteX    = tempoX;
+        const noteY    = tempoY - 1.5;
+        const rx       = 3.4 * gs;
+        const ry       = 2.2 * gs;
+        const stemX    = noteX + rx * 0.85;
+        const stemTopY = noteY - 13 * gs;
+
+        if (t.beatUnit === "half") {
+            this.doc.setDrawColor(...this.engraverColor);
+            this.doc.setFillColor(...this.engraverColor);
+            this.doc.setLineWidth(0.9 * gs);
+            this.drawSVGEllipse(noteX, noteY, rx - 0.4, ry - 0.4, false, 'solid', -20);
+            this.doc.setLineWidth(1.0 * gs);
+            this.doc.line(stemX, noteY - 0.5, stemX, stemTopY);
+        } else if (t.beatUnit === "eighth") {
+            this.doc.setFillColor(...this.engraverColor);
+            this.doc.setDrawColor(...this.engraverColor);
+            this.drawSVGEllipse(noteX, noteY, rx, ry, true, 'none', -20);
+            this.doc.setLineWidth(1.0 * gs);
+            this.doc.line(stemX, noteY - 0.5, stemX, stemTopY);
+            this.doc.line(stemX, stemTopY, stemX + 6 * gs, stemTopY + 6 * gs);
+        } else {
+            this.doc.setFillColor(...this.engraverColor);
+            this.doc.setDrawColor(...this.engraverColor);
+            this.drawSVGEllipse(noteX, noteY, rx, ry, true, 'none', -20);
+            this.doc.setLineWidth(1.0 * gs);
+            this.doc.line(stemX, noteY - 0.5, stemX, stemTopY);
+        }
+
+        this.drawText(
+            stemX + 5 * gs, tempoY,
+            `= ${Math.round(t.bpm)}`,
+            11, this.engraverColor, "left", true, this.FONT_SERIF
+        );
+    }
+
+    _renderMeasureContent(measureIdx, renderMeasure) {
+        const scale       = 1.0;
+        const staffHeight = 4 * this.lineSpacing;
+
+        let currentStaffYOffset = 0;
+        let previousPartIndex   = -1;
+
+        for (let s = 1; s <= this.totalSystemStaves; s++) {
+            const pInfo = this.partStaffMap.find(p => s >= p.startStaffId && s < p.startStaffId + p.numStaves);
+            if (!pInfo) continue;
+
+            const localStaff = (s - pInfo.startStaffId) + 1;
+            if (pInfo.partIndex !== previousPartIndex && previousPartIndex !== -1) {
+                currentStaffYOffset += this.partSpacing * scale;
+            }
+            const sY = this.currentY + currentStaffYOffset;
+
+            // Cari MIDI channel untuk notasi perkusi
+            let channelId = -1;
+            const partId = pInfo.partNode.getAttribute('id');
+            const entry  = this.xmlDoc.querySelector(`part-list score-part[id="${partId}"]`);
+            const midiChannelNode = entry?.querySelector('midi-instrument midi-channel');
+            if (midiChannelNode) channelId = parseInt(midiChannelNode.textContent, 10);
+
+            this._renderStaffMeasure(pInfo, s, localStaff, sY, measureIdx, renderMeasure, channelId);
+
+            currentStaffYOffset += staffHeight;
+            if (localStaff < pInfo.numStaves) currentStaffYOffset += this.staffSpacing * scale;
+            previousPartIndex = pInfo.partIndex;
+        }
+    }
+
+    _renderStaffMeasure(pInfo, staffId, localStaff, sY, measureIdx, renderMeasure, channelId) {
+        const state = this.staffState[staffId];
+        const mNode = renderMeasure
+            ? renderMeasure.node
+            : this.partMeasureMap[pInfo.partIndex].get(measureIdx + 1);
+
+        if (!mNode) {
+            if (renderMeasure && renderMeasure.compressedCount > 0) {
+                this.drawMultiMeasureRest(this.currentX, sY, this.measureWidth, renderMeasure.compressedCount);
+            }
+            return;
+        }
+
+        const harmoniesInMeasure = this._parseHarmoniesInMeasure(mNode, state);
+        const notes      = this._collectNotesInMeasure(mNode, state, staffId, localStaff);
+        const allColumns = this._groupNotesIntoColumns(
+            notes.allNotesInMeasure, notes.totalMeasureDivs,
+            notes.currentStaffDivisions, harmoniesInMeasure
         );
 
-        currentY += 7; 
-        currentY += this.firstSystemGap;
-        const leftMargin = this.marginLeft + 45;
-        const rightMargin = this.marginRight;
-        const systemStartX = this.marginLeft;
-        const usableWidth = this.PAGE_WIDTH - leftMargin - rightMargin;
-        const measureWidth = usableWidth / this.measuresPerLine;
+        this._adjustColumnSpacing(allColumns);
+        this._renderColumns(allColumns, sY, state, localStaff, channelId);
+    }
 
-        let currentX = leftMargin;
+    _parseHarmoniesInMeasure(mNode, state) {
+        const harmoniesInMeasure = [];
+        let timeInDivs = 0;
+        let currentDivisions = state.divisions;
 
-        const staffState = {};
-        for (let s = 1; s <= totalSystemStaves; s++) {
-            staffState[s] = { clef: "G", fifths: 0, beats: 4, beatType: 4, timeSymbol: null, divisions: 4 };
+        Array.from(mNode.children).forEach(child => {
+            const tag = child.tagName;
+            if (tag === "attributes") {
+                const div = parseInt(child.querySelector("divisions")?.textContent || "0", 10);
+                if (div > 0) currentDivisions = div;
+            } else if (tag === "note") {
+                const isChord = child.querySelector("chord") !== null;
+                if (!isChord) {
+                    timeInDivs += parseInt(child.querySelector("duration")?.textContent || "0", 10);
+                }
+            } else if (tag === "forward") {
+                timeInDivs += parseInt(child.querySelector("duration")?.textContent || "0", 10);
+            } else if (tag === "backup") {
+                timeInDivs -= parseInt(child.querySelector("duration")?.textContent || "0", 10);
+            } else {
+                const harmonyNode = (tag === "harmony") ? child : child.querySelector("harmony");
+                if (!harmonyNode) return;
+
+                const rootStep  = harmonyNode.querySelector("root root-step")?.textContent || "";
+                const rootAlter = parseInt(harmonyNode.querySelector("root root-alter")?.textContent || "0", 10);
+                const kind      = harmonyNode.querySelector("kind")?.textContent || "";
+
+                const alterSymbol = ({ 1: "#", "-1": "b", 2: "##", "-2": "bb" })[String(rootAlter)] ?? "";
+
+                const kindText = ({
+                    "major": "", "minor": "m", "dominant": "7",
+                    "major-seventh": "maj7", "minor-seventh": "m7",
+                    "diminished": "dim", "augmented": "aug",
+                    "suspended-fourth": "sus4", "suspended-second": "sus2",
+                    "half-diminished": "m7b5", "major-sixth": "6", "minor-sixth": "m6"
+                })[kind] ?? kind;
+
+                const chordLabel = `${rootStep}${alterSymbol}${kindText}`.trim();
+                const offsetNode = harmonyNode.querySelector("offset");
+                const offsetDiv  = offsetNode ? parseInt(offsetNode.textContent, 10) : 0;
+
+                if (chordLabel) {
+                    harmoniesInMeasure.push({
+                        label: chordLabel,
+                        onsetDiv: Math.max(0, timeInDivs + offsetDiv)
+                    });
+                }
+            }
+        });
+
+        return harmoniesInMeasure;
+    }
+
+    _collectNotesInMeasure(mNode, state, staffId, localStaff) {
+        const measureDuration       = state.beats * state.divisions;
+        const currentStaffDivisions = state.divisions;
+        const allNotesInMeasure     = [];
+
+        let currentDiv  = 0;
+        let lastBaseDiv = 0;
+
+        for (const noteNode of mNode.querySelectorAll("note")) {
+            const result = this._processNoteNode(
+                noteNode, staffId, localStaff, state,
+                currentStaffDivisions, allNotesInMeasure, currentDiv, lastBaseDiv
+            );
+            currentDiv  = result.currentDiv;
+            lastBaseDiv = result.lastBaseDiv;
         }
 
-        if (this.autoClef) {
-            this.applyAutoClefToStaffState(partStaffMap, partMeasureMap, staffState);
+        const totalMeasureDivs = Math.max(measureDuration, currentDiv, 1);
+
+        if (allNotesInMeasure.length === 0) {
+            allNotesInMeasure.push(this._makeRest(staffId, 0, measureDuration, state, currentStaffDivisions));
+        } else {
+            const firstOnset = Math.min(...allNotesInMeasure.map(n => n.onsetDiv || 0));
+            if (firstOnset > 0) {
+                allNotesInMeasure.unshift(this._makeRest(staffId, 0, firstOnset, state, currentStaffDivisions));
+            }
         }
 
-        const activeTies = {};
+        return { allNotesInMeasure, totalMeasureDivs, currentStaffDivisions };
+    }
 
-        for (let measureIdx = 0; measureIdx < totalMeasures; measureIdx++) {
-            const isSystemStart = (measureIdx % this.measuresPerLine === 0);
-            const renderMeasure = renderMeasures ? renderMeasures[measureIdx] : null;
-            const displayMeasureNumber = renderMeasure ? renderMeasure.number : measureIdx + 1;
+    _makeRest(staffId, onsetDiv, duration, state, divisions) {
+        return {
+            isRest: true, staff: staffId,
+            step: "C", octave: 4, alter: 0, accidental: null,
+            type: MusicXMLPDFRenderer.getNoteType(duration, divisions),
+            notehead: null, dots: 0, lyric: null,
+            onsetDiv, duration,
+            tieStart: false, tieStop: false,
+            divisions, beatType: state.beatType || 4
+        };
+    }
 
-            partStaffMap.forEach(pInfo => {
-                // Untuk measure yang dikompres, kita tetap perlu membaca <attributes>
-                // dari measure pertama di blok tersebut, supaya divisions / key / time /
-                // clef di-inherit dengan benar oleh measure-measure berikutnya.
-                let mNode;
-                if (renderMeasure) {
-                    if (renderMeasure.node) {
-                        mNode = renderMeasure.node;
-                    } else if (renderMeasure.compressedCount > 0) {
-                        mNode = partMeasureMap[pInfo.partIndex].get(renderMeasure.originalStart);
-                    }
-                } else {
-                    mNode = partMeasureMap[pInfo.partIndex].get(measureIdx + 1);
-                }
-                if (!mNode) return;
+    _processNoteNode(noteNode, staffId, localStaff, state, divisions, allNotesInMeasure, currentDiv, lastBaseDiv) {
+        const noteStaff = parseInt(noteNode.querySelector("staff")?.textContent || "1", 10);
+        if (noteStaff !== localStaff) return { currentDiv, lastBaseDiv };
 
-                const attrNode = mNode.querySelector("attributes");
-                if (!attrNode) return;
+        const isChord  = noteNode.querySelector("chord") !== null;
+        const isRest   = noteNode.querySelector("rest") !== null;
+        const duration = parseInt(noteNode.querySelector("duration")?.textContent || "0", 10);
+        const lyricText = noteNode.querySelector("lyric text")?.textContent;
 
-                // Divisions: hanya update kalau elemen <divisions> benar-benar ada.
-                const divisionsEl = attrNode.querySelector("divisions");
-                if (divisionsEl) {
-                    const divVal = parseInt(divisionsEl.textContent, 10);
-                    if (Number.isFinite(divVal) && divVal > 0) {
-                        for (let s = 0; s < pInfo.numStaves; s++) {
-                            const staffId = pInfo.startStaffId + s;
-                            if (staffState[staffId]) {
-                                staffState[staffId].divisions = divVal;
-                            }
-                        }
-                    }
-                }
+        let origTieStart = false, origTieStop = false;
+        noteNode.querySelectorAll("tie, tied").forEach(t => {
+            const type = t.getAttribute("type");
+            if (type === "start") origTieStart = true;
+            if (type === "stop")  origTieStop  = true;
+        });
 
-                const fifthsVal = parseInt(attrNode.querySelector("key fifths")?.textContent || "0");
-                const timeNode = attrNode.querySelector("time");
-                for (let s = 0; s < pInfo.numStaves; s++) {
-                    const staffId = pInfo.startStaffId + s;
-                    if (staffState[staffId]) {
-                        staffState[staffId].fifths = fifthsVal;
-                        if (timeNode) {
-                            staffState[staffId].beats = parseInt(timeNode.querySelector("beats")?.textContent || "4");
-                            staffState[staffId].beatType = parseInt(timeNode.querySelector("beat-type")?.textContent || "4");
-                            staffState[staffId].timeSymbol = timeNode.getAttribute("symbol");
-                        }
-                    }
-                }
-                attrNode.querySelectorAll("clef").forEach(clefNode => {
-                    const clefNum = parseInt(clefNode.getAttribute("number") || "1");
-                    const sign = clefNode.querySelector("sign")?.textContent;
-                    const staffId = pInfo.startStaffId + (clefNum - 1);
-                    if (staffState[staffId] && sign) {
-                        if (measureIdx === 0 && staffState[staffId]._clefAutoApplied) {
-                            return;
-                        }
-                        staffState[staffId].clef = sign;
-                    }
-                });
+        let pieces = [duration];
+        if (!isRest && duration > 0 && !MusicXMLPDFRenderer.isStandardDuration(duration, divisions)) {
+            pieces = MusicXMLPDFRenderer.splitDurationIntoRepresentablePieces(duration, divisions);
+        }
+
+        const baseOnsetDiv = isChord ? lastBaseDiv : currentDiv;
+        let pieceCurrentDiv = baseOnsetDiv;
+        const xmlType = noteNode.querySelector("type")?.textContent;
+        const xmlDots = noteNode.querySelectorAll("dot").length;
+
+        const octaveNode = noteNode.querySelector("pitch octave, unpitched display-octave");
+        const octaveText = octaveNode ? octaveNode.textContent : null;
+        const octaveVal  = (octaveText == null || octaveText === '')
+            ? 4
+            : (Number.isFinite(parseInt(octaveText, 10)) ? parseInt(octaveText, 10) : 4);
+
+        pieces.forEach((pieceDuration, pIdx) => {
+            const isFirst = (pIdx === 0);
+            const isLast  = (pIdx === pieces.length - 1);
+
+            let tieStart, tieStop;
+            if (pieces.length > 1) {
+                tieStart = isFirst ? true : origTieStart;
+                tieStop  = isLast  ? true : origTieStop;
+                if (!isFirst && !isLast) { tieStart = true; tieStop = true; }
+            } else {
+                tieStart = origTieStart;
+                tieStop  = origTieStop;
+            }
+
+            let finalType, finalDots;
+            let finalDuration = pieceDuration;
+
+            const isFullMeasure3_4 = (state.beats === 3 && state.beatType === 4)
+                && Math.abs(pieceDuration - (3 * divisions)) < 1;
+
+            if (isFullMeasure3_4 && !isRest) {
+                finalType = 'whole';
+                finalDots = 0;
+            } else if (pieces.length === 1 && xmlType) {
+                finalType = xmlType;
+                finalDots = xmlDots;
+                const expected = MusicXMLPDFRenderer.getDurationFromType(xmlType, xmlDots, divisions);
+                if (expected > 0 && Math.abs(expected - pieceDuration) > 1) finalDuration = expected;
+            } else {
+                const td = MusicXMLPDFRenderer.getNoteTypeAndDots(
+                    pieceDuration, divisions, state.beats, state.beatType
+                );
+                finalType = td.type;
+                finalDots = td.dots;
+                const expected = MusicXMLPDFRenderer.getDurationFromType(finalType, finalDots, divisions);
+                if (expected > 0 && Math.abs(expected - pieceDuration) > 1) finalDuration = expected;
+            }
+
+            allNotesInMeasure.push({
+                isRest, staff: staffId,
+                step: noteNode.querySelector("pitch step, unpitched display-step")?.textContent || "C",
+                octave: octaveVal,
+                alter: parseInt(noteNode.querySelector("pitch alter")?.textContent || "0", 10),
+                accidental: noteNode.querySelector("accidental")?.textContent,
+                type: finalType,
+                notehead: noteNode.querySelector("notehead")?.textContent,
+                dots: finalDots,
+                lyric: isFirst ? lyricText : null,
+                onsetDiv: pieceCurrentDiv,
+                duration: finalDuration,
+                tieStart, tieStop,
+                divisions,
+                beatType: state.beatType || 4
             });
 
-            if (isSystemStart) {
-                if (measureIdx > 0) {
-                    const nextSystemTop    = currentY + this.rowSpacing;
-                    // Posisi bawah sistem tersebut (yang sebelumnya tidak dihitung)
-                    const nextSystemBottom = nextSystemTop + calculatedStaffSystemHeight;
+            if (!isChord) pieceCurrentDiv += pieceDuration;
+        });
 
-                    if (nextSystemBottom > this.PAGE_HEIGHT - this.marginBottom) {
-                        this.doc.addPage();
-                        currentY = this.marginTopOtherPages;
-                    } else {
-                        currentY = nextSystemTop;
-                    }
-                }
-                currentX = leftMargin;
-            }
+        if (!isChord) currentDiv = pieceCurrentDiv;
+        lastBaseDiv = baseOnsetDiv;
+        return { currentDiv, lastBaseDiv };
+    }
 
-            if (isSystemStart) {
-                const remainingMeasuresInSystem = Math.min(this.measuresPerLine, totalMeasures - measureIdx);
-                const systemRowWidth = (leftMargin - systemStartX) + (remainingMeasuresInSystem * measureWidth);
+    _groupNotesIntoColumns(allNotesInMeasure, totalMeasureDivs, divisions, harmoniesInMeasure) {
+        const columnsByOnset = {};
+        let currentBaseOnset = 0;
 
-                currentX = leftMargin;
+        allNotesInMeasure.forEach(note => {
+            if (!note.isChord) currentBaseOnset = note.onsetDiv;
+            const key = `${currentBaseOnset}${note.tieStart || note.tieStop ? '-tie' : ''}`;
+            if (!columnsByOnset[key]) columnsByOnset[key] = [];
+            columnsByOnset[key].push(note);
+        });
 
-                this.currentMeasureStartX = currentX;
-                this.currentMeasureRightX = currentX + measureWidth;
+        const sortedKeys = Object.keys(columnsByOnset).sort((a, b) => {
+            const aOnset = parseInt(a), bOnset = parseInt(b);
+            if (aOnset !== bOnset) return aOnset - bOnset;
+            if (a.includes('tie') && !b.includes('tie')) return 1;
+            if (!a.includes('tie') && b.includes('tie')) return -1;
+            return 0;
+        });
 
-                this.drawSystemStartLine(systemStartX, currentY, calculatedStaffSystemHeight);
+        let lastX = 0;
+        const allColumns = [];
+        const padding = 8;
+        const xRange  = this.measureWidth - padding * 2;
+        const tol     = Math.max(4, Math.round(divisions / 4));
 
-                let currentStaffYOffset = 0;
-                let previousPartIndex = -1;
-                for (let s = 1; s <= totalSystemStaves; s++) {
-                    const pInfo = partStaffMap.find(p => s >= p.startStaffId && s < p.startStaffId + p.numStaves);
-                    if (!pInfo) continue;
+        sortedKeys.forEach(key => {
+            const onset    = parseInt(key) || 0;
+            const colNotes = columnsByOnset[key];
+            const ratio    = Math.min(1.0, Math.max(0.0, onset / totalMeasureDivs));
+            let colX       = this.currentX + padding + ratio * xRange;
 
-                    const localStaff = (s - pInfo.startStaffId) + 1;
-                    if (pInfo.partIndex !== previousPartIndex && previousPartIndex !== -1) {
-                        currentStaffYOffset += this.partSpacing * scale;
-                    }
-                    const sY = currentY + currentStaffYOffset;
+            const hasTieStart = colNotes.some(n => n.tieStart);
+            const hasTieStop  = colNotes.some(n => n.tieStop);
+            const isChord     = colNotes.length > 1;
 
-                    this.drawStaffLines(systemStartX, sY, systemRowWidth);
-                    this.drawBarLine(leftMargin, sY, false, staffHeight);
+            if (hasTieStop && !hasTieStart && !isChord && allColumns.length > 0) colX -= 16;
+            if (hasTieStart && colNotes.some(n => !n.tieStart && !n.tieStop)) colX -= 14;
+            if (colX <= lastX + 5) colX = lastX + 12;
+            lastX = colX;
 
-                    const state = staffState[s];
-                    const clefX = systemStartX + 5;
-                    this.drawClef(state.clef, clefX, sY);
+            allColumns.push({
+                key, onset, colX, colNotes,
+                harmonies: harmoniesInMeasure.filter(h => Math.abs(h.onsetDiv - onset) < tol),
+                hasTieStart, hasTieStop, isChord
+            });
+        });
 
-                    const keySigX = clefX + 20;
-                    this.drawKeySignature(keySigX, sY, state.fifths, state.clef);
+        return allColumns;
+    }
 
-                    const timeSigX = keySigX + 6;
-                    this.drawTimeSignature(timeSigX, sY, state.beats, state.beatType, state.timeSymbol);
-
-                    const textX = systemStartX - 16;
-                    const textY = sY + (4.05 * this.lineSpacing);
-                    const textContent = partDetails[pInfo.partIndex].abbr;
-                    this.drawText(textX, textY, textContent, 9, this.engraverColor, "left", false, this.FONT_SANS_SERIF, 90);
-
-                    currentStaffYOffset += (4 * this.lineSpacing);
-                    if (localStaff < pInfo.numStaves) {
-                        currentStaffYOffset += this.staffSpacing * scale;
-                    }
-                    previousPartIndex = pInfo.partIndex;
-                }
-
-                let braceYOffset = 0;
-                partStaffMap.forEach((pInfo, index) => {
-                    const partHeight = pInfo.numStaves * (4 * this.lineSpacing) + Math.max(0, pInfo.numStaves - 1) * this.staffSpacing * scale;
-                    if (pInfo.numStaves >= 2) {
-                        const braceTopY = currentY + braceYOffset;
-                        const braceBottomY = braceTopY + partHeight;
-                        this.drawGrandStaffBrace(systemStartX - 4, braceTopY, braceBottomY);
-                    }
-                    braceYOffset += partHeight + (index < partStaffMap.length - 1 ? this.partSpacing * scale : 0);
-                });
-
-                let systemLabel;
-                if (renderMeasure && renderMeasure.compressedCount > 1) {
-                    systemLabel = `${renderMeasure.originalStart}–${renderMeasure.originalEnd}`;
-                } else {
-                    systemLabel = `${displayMeasureNumber}`;
-                }
-                this.drawText(systemStartX, currentY - 14, systemLabel, 10, this.subtitleColor, "left", true, this.FONT_SANS_SERIF);
-                
-                
-            }
-
-            const isLastMeasureInScore = (measureIdx === totalMeasures - 1);
-            let rightBarOffset = 0;
-            let rightPrevPart = -1;
-            for (let s = 1; s <= totalSystemStaves; s++) {
-                const pInfo = partStaffMap.find(p => s >= p.startStaffId && s < (p.startStaffId + p.numStaves));
-                if (!pInfo) continue;
-                if (pInfo.partIndex !== rightPrevPart && rightPrevPart !== -1) {
-                    rightBarOffset += this.partSpacing * scale;
-                }
-                const sY = currentY + rightBarOffset;
-                this.drawBarLine(currentX + measureWidth, sY, isLastMeasureInScore, staffHeight);
-                rightBarOffset += (4 * this.lineSpacing);
-                const localStaff = (s - pInfo.startStaffId) + 1;
-                if (localStaff < pInfo.numStaves) {
-                    rightBarOffset += this.staffSpacing * scale;
-                }
-                rightPrevPart = pInfo.partIndex;
-            }
-
-            const tempoMeasureNumber = renderMeasure ? renderMeasure.number : (measureIdx + 1);
-            const tempoMeasureNode = partMeasureMap[0].get(tempoMeasureNumber);
-
-            if (tempoMeasureNode) {
-                // --- Baca SEMUA <direction> yang memuat tempo ---
-                const tempoEntries = [];
-                tempoMeasureNode.querySelectorAll("direction").forEach(dir => {
-                    let bpm = null;
-                    let beatUnit = 'quarter';
-                    let dots = 0;
-
-                    const metroNode = dir.querySelector("metronome");
-                    if (metroNode) {
-                        const perMin = metroNode.querySelector("per-minute");
-                        if (perMin) bpm = parseFloat(perMin.textContent);
-                        const bu = metroNode.querySelector("beat-unit");
-                        if (bu) beatUnit = bu.textContent;
-                        dots = metroNode.querySelectorAll("beat-unit-dot").length;
-                    } else {
-                        const soundNode = dir.querySelector("sound[tempo]");
-                        if (soundNode) bpm = parseFloat(soundNode.getAttribute("tempo"));
-                    }
-
-                    if (bpm === null || isNaN(bpm)) return;
-
-                    // --- Baca <offset> kalau ada (satuan divisions) ---
-                    let offsetDiv = 0;
-                    const offsetNode = dir.querySelector("offset");
-                    if (offsetNode) {
-                        const v = parseFloat(offsetNode.textContent);
-                        if (Number.isFinite(v)) offsetDiv = v;
-                    }
-
-                    tempoEntries.push({ bpm, beatUnit, dots, offsetDiv });
-                });
-
-                if (tempoEntries.length > 0) {
-                    // Urutkan berdasarkan offset
-                    tempoEntries.sort((a, b) => a.offsetDiv - b.offsetDiv);
-
-                    // Panjang measure dalam divisions (untuk konversi offset → X)
-                    const divisionsForTempo  = staffState[1] ? staffState[1].divisions : 4;
-                    const beatsForTempo      = staffState[1] ? staffState[1].beats      : 4;
-                    const beatTypeForTempo   = staffState[1] ? staffState[1].beatType   : 4;
-                    const measureDivsForTempo =
-                        (beatsForTempo * 4 / beatTypeForTempo) * divisionsForTempo;
-
-                    const gs = this.GLOBAL_SCALE ?? 1.0;
-                    const tempoY = currentY - 6;
-                    const MIN_GAP = 8 * gs;
-
-                    let lastRightX = -Infinity;
-
-                    tempoEntries.forEach(t => {
-                        // Posisi X = kiri measure + offset
-                        const offsetRatio = (measureDivsForTempo > 0)
-                            ? (t.offsetDiv / measureDivsForTempo)
-                            : 0;
-                        let tempoX = currentX + offsetRatio * measureWidth + 4 * gs;
-
-                        // Estimasi lebar tempo mark agar tidak tumpang tindih
-                        const bpmStr = String(Math.round(t.bpm));
-                        const estimatedWidth = (12 + bpmStr.length * 6) * gs;
-                        if (tempoX < lastRightX + MIN_GAP) {
-                            tempoX = lastRightX + MIN_GAP;
-                        }
-
-                        // ---- Gambar simbol not sesuai beat-unit ----
-                        const noteX = tempoX;
-                        const noteY = tempoY - 1.5;
-                        const rx = 3.4 * gs;
-                        const ry = 2.2 * gs;
-                        const stemX = noteX + rx * 0.85;
-                        const stemTopY = noteY - 13 * gs;
-
-                        if (t.beatUnit === "half") {
-                            this.doc.setDrawColor(...this.engraverColor);
-                            this.doc.setFillColor(...this.engraverColor);
-                            this.doc.setLineWidth(0.9 * gs);
-                            this.drawSVGEllipse(noteX, noteY, rx - 0.4, ry - 0.4, false, 'solid', -20);
-                            this.doc.setLineWidth(1.0 * gs);
-                            this.doc.line(stemX, noteY - 0.5, stemX, stemTopY);
-                        } else if (t.beatUnit === "eighth") {
-                            this.doc.setFillColor(...this.engraverColor);
-                            this.doc.setDrawColor(...this.engraverColor);
-                            this.drawSVGEllipse(noteX, noteY, rx, ry, true, 'none', -20);
-                            this.doc.setLineWidth(1.0 * gs);
-                            this.doc.line(stemX, noteY - 0.5, stemX, stemTopY);
-                            this.doc.line(stemX, stemTopY, stemX + 6 * gs, stemTopY + 6 * gs);
-                        } else {
-                            // Default quarter
-                            this.doc.setFillColor(...this.engraverColor);
-                            this.doc.setDrawColor(...this.engraverColor);
-                            this.drawSVGEllipse(noteX, noteY, rx, ry, true, 'none', -20);
-                            this.doc.setLineWidth(1.0 * gs);
-                            this.doc.line(stemX, noteY - 0.5, stemX, stemTopY);
-                        }
-
-                        // ---- Gambar teks BPM ----
-                        this.drawText(
-                            stemX + 5 * gs,
-                            tempoY,
-                            `= ${Math.round(t.bpm)}`,
-                            11,
-                            this.engraverColor,
-                            "left",
-                            true,
-                            this.FONT_SERIF
-                        );
-
-                        lastRightX = tempoX + estimatedWidth;
-                    });
+    _adjustColumnSpacing(allColumns) {
+        for (let i = 0; i < allColumns.length - 1; i++) {
+            const cur  = allColumns[i];
+            const next = allColumns[i + 1];
+            if (next.colX - cur.colX < 12) {
+                if (cur.hasTieStart && !cur.hasTieStop)  cur.colX -= 6;
+                if (next.hasTieStart && !next.hasTieStop) next.colX -= 6;
+                if (cur.hasTieStart && next.hasTieStart) {
+                    cur.colX  -= 4;
+                    next.colX += 4;
                 }
             }
-            
-
-            let currentStaffYOffset = 0;
-            let previousPartIndex = -1;
-            for (let s = 1; s <= totalSystemStaves; s++) {
-                const pInfo = partStaffMap.find(p => s >= p.startStaffId && s < p.startStaffId + p.numStaves);
-                let channelId = -1;
-                if (pInfo) {
-                    const partId = pInfo.partNode.getAttribute('id');
-                    const partListEntry = xmlDoc.querySelector(`part-list score-part[id="${partId}"]`);
-                    const midiChannelNode = partListEntry?.querySelector('midi-instrument midi-channel');
-                    if (midiChannelNode) channelId = parseInt(midiChannelNode.textContent, 10);
-                }
-                if (!pInfo) continue;
-
-                const localStaff = (s - pInfo.startStaffId) + 1;
-                if (pInfo.partIndex !== previousPartIndex && previousPartIndex !== -1) {
-                    currentStaffYOffset += this.partSpacing * scale;
-                }
-                const sY = currentY + currentStaffYOffset;
-
-                const state = staffState[s];
-                const mNode = renderMeasure
-                    ? renderMeasure.node
-                    : partMeasureMap[pInfo.partIndex].get(measureIdx + 1);
-
-                if (!mNode) {
-                    if (renderMeasure && renderMeasure.compressedCount > 0) {
-                        this.drawMultiMeasureRest(currentX, sY, measureWidth, renderMeasure.compressedCount);
-                    }
-
-                    currentStaffYOffset += (4 * this.lineSpacing);
-                    if (localStaff < pInfo.numStaves) {
-                        currentStaffYOffset += this.staffSpacing * scale;
-                    }
-                    previousPartIndex = pInfo.partIndex;
-                    continue;
-                }
-
-                let measureDuration = state.beats * state.divisions;
-                let currentDiv = 0;
-                let lastBaseDiv = 0;
-                const allNotesInMeasure = [];
-                const currentStaffDivisions = state.divisions;
-                
-                // Replace the previous harmony parsing block with this implementation.
-                const harmoniesInMeasure = [];
-                {
-                    let timeInDivs = 0;
-                    let currentDivisions = state.divisions;
-                    
-                    Array.from(mNode.children).forEach(child => {
-                        const tag = child.tagName;
-                        if (tag === "attributes") {
-                            const div = parseInt(child.querySelector("divisions")?.textContent || "0", 10);
-                            if (div > 0) {
-                                currentDivisions = div;
-                            }
-                        } else if (tag === "note") {
-                            const isChord = child.querySelector("chord") !== null;
-                            if (!isChord) {
-                                const dur = parseInt(child.querySelector("duration")?.textContent || "0", 10);
-                                timeInDivs += dur;
-                            }
-                        } else if (tag === "forward") {
-                            const dur = parseInt(child.querySelector("duration")?.textContent || "0", 10);
-                            timeInDivs += dur;
-                        } else if (tag === "backup") {
-                            const dur = parseInt(child.querySelector("duration")?.textContent || "0", 10);
-                            timeInDivs -= dur;
-                        } else {
-                            // Check for a direct <harmony> element or one nested inside <direction>.
-                            const harmonyNode = (tag === "harmony") ? child : child.querySelector("harmony");
-                            if (harmonyNode) {
-                                const rootStep = harmonyNode.querySelector("root root-step")?.textContent || "";
-                                const rootAlter = parseInt(harmonyNode.querySelector("root root-alter")?.textContent || "0", 10);
-                                const kind = harmonyNode.querySelector("kind")?.textContent || "";
-                                
-                                let alterSymbol = "";
-                                if (rootAlter === 1) alterSymbol = "#";
-                                else if (rootAlter === -1) alterSymbol = "b";
-                                else if (rootAlter === 2) alterSymbol = "##";
-                                else if (rootAlter === -2) alterSymbol = "bb";
-                                
-                                let kindText = "";
-                                switch (kind) {
-                                    case "major": kindText = ""; break;
-                                    case "minor": kindText = "m"; break;
-                                    case "dominant": kindText = "7"; break;
-                                    case "major-seventh": kindText = "maj7"; break;
-                                    case "minor-seventh": kindText = "m7"; break;
-                                    case "diminished": kindText = "dim"; break;
-                                    case "augmented": kindText = "aug"; break;
-                                    case "suspended-fourth": kindText = "sus4"; break;
-                                    case "suspended-second": kindText = "sus2"; break;
-                                    case "half-diminished": kindText = "m7b5"; break;
-                                    case "major-sixth": kindText = "6"; break;
-                                    case "minor-sixth": kindText = "m6"; break;
-                                    default: kindText = kind; break;
-                                }
-                                
-                                const chordLabel = `${rootStep}${alterSymbol}${kindText}`.trim();
-                                const offsetNode = harmonyNode.querySelector("offset");
-                                const offsetDiv = offsetNode ? parseInt(offsetNode.textContent, 10) : 0;
-                                
-                                if (chordLabel) {
-                                    harmoniesInMeasure.push({
-                                        label: chordLabel,
-                                        onsetDiv: Math.max(0, timeInDivs + offsetDiv)
-                                    });
-                                }
-                            }
-                        }
-                    });
-                }
-
-                mNode.querySelectorAll("note").forEach(originalNoteNode => {
-                    const noteStaff = parseInt(originalNoteNode.querySelector("staff")?.textContent || "1", 10);
-                    if (noteStaff !== localStaff) return;
-
-                    const isChord = originalNoteNode.querySelector("chord") !== null;
-                    const isRest = originalNoteNode.querySelector("rest") !== null;
-                    let originalDuration = parseInt(originalNoteNode.querySelector("duration")?.textContent || "0", 10);
-                    let lyricText = originalNoteNode.querySelector("lyric text")?.textContent;
-
-                    let originalTieStart = false;
-                    let originalTieStop = false;
-                    originalNoteNode.querySelectorAll("tie, tied").forEach(t => {
-                        const type = t.getAttribute("type");
-                        if (type === "start") originalTieStart = true;
-                        if (type === "stop") originalTieStop = true;
-                    });
-
-                    let pieces = [originalDuration];
-                    if (!isRest && originalDuration > 0 && !MusicXMLPDFRenderer.isStandardDuration(originalDuration, currentStaffDivisions)) {
-                        pieces = MusicXMLPDFRenderer.splitDurationIntoRepresentablePieces(originalDuration, currentStaffDivisions);
-                    }
-
-                    // Preserve this note's onset. For chord notes, use the base note's onset (lastBaseDiv).
-                    const baseOnsetDiv = isChord ? lastBaseDiv : currentDiv;
-                    let pieceCurrentDiv = baseOnsetDiv;
-                    const xmlType = originalNoteNode.querySelector("type")?.textContent;
-                    const xmlDots = originalNoteNode.querySelectorAll("dot").length; 
-
-                    pieces.forEach((pieceDuration, pIdx) => {
-                        const isFirstPiece = (pIdx === 0);
-                        const isLastPiece = (pIdx === pieces.length - 1);
-
-                        let pieceTieStart = false;
-                        let pieceTieStop = false;
-
-                        if (pieces.length > 1) {
-                            if (isFirstPiece) {
-                                pieceTieStart = true;
-                                pieceTieStop = originalTieStop;
-                            } else if (isLastPiece) {
-                                pieceTieStart = originalTieStart;
-                                pieceTieStop = true;
-                            } else {
-                                pieceTieStart = true;
-                                pieceTieStop = true;
-                            }
-                        } else {
-                            pieceTieStart = originalTieStart;
-                            pieceTieStop = originalTieStop;
-                        }
-
-                        let finalType, finalDots;
-                        let finalDuration = pieceDuration;
-
-                        const isFullMeasure3_4 = (state.beats === 3 && state.beatType === 4) && 
-                                                 (Math.abs(pieceDuration - (3 * currentStaffDivisions)) < 1);
-
-                        if (isFullMeasure3_4 && !isRest) {
-                            finalType = 'whole';
-                            finalDots = 0;
-                            finalDuration = pieceDuration; 
-                        } else if (pieces.length === 1 && xmlType) {
-                            finalType = xmlType;
-                            finalDots = xmlDots;
-                            
-                            const expectedDuration = MusicXMLPDFRenderer.getDurationFromType(xmlType, xmlDots, currentStaffDivisions);
-                            if (expectedDuration > 0 && Math.abs(expectedDuration - pieceDuration) > 1) {
-                                finalDuration = expectedDuration;
-                            }
-                        } else {
-                            const typeAndDots = MusicXMLPDFRenderer.getNoteTypeAndDots(
-                                pieceDuration, 
-                                currentStaffDivisions, 
-                                state.beats, 
-                                state.beatType
-                            );
-                            finalType = typeAndDots.type;
-                            finalDots = typeAndDots.dots;
-
-                            const expectedDuration = MusicXMLPDFRenderer.getDurationFromType(finalType, finalDots, currentStaffDivisions);
-                            if (expectedDuration > 0 && Math.abs(expectedDuration - pieceDuration) > 1) {
-                                finalDuration = expectedDuration;
-                            }
-                        }
-
-                        const octaveNode = originalNoteNode.querySelector("pitch octave, unpitched display-octave");
-                        const octaveText = octaveNode ? octaveNode.textContent : null;
-                        const octaveVal = (octaveText == null || octaveText === '')
-                            ? 4
-                            : (Number.isFinite(parseInt(octaveText, 10)) ? parseInt(octaveText, 10) : 4);
-
-                        const noteData = {
-                            isRest: isRest,
-                            staff: s,
-                            step: originalNoteNode.querySelector("pitch step, unpitched display-step")?.textContent || "C",
-                            octave: octaveVal,
-                            alter: parseInt(originalNoteNode.querySelector("pitch alter")?.textContent || "0", 10),
-                            accidental: originalNoteNode.querySelector("accidental")?.textContent,
-                            type: finalType,
-                            notehead: originalNoteNode.querySelector("notehead")?.textContent,
-                            dots: finalDots,
-                            lyric: isFirstPiece ? lyricText : null,
-                            onsetDiv: pieceCurrentDiv,
-                            duration: finalDuration,
-                            tieStart: pieceTieStart,
-                            tieStop: pieceTieStop,
-                            divisions: currentStaffDivisions,
-                            beatType: state.beatType || 4
-                        };
-                        allNotesInMeasure.push(noteData);
-
-                        if (!isChord) {
-                            pieceCurrentDiv += pieceDuration;
-                        }
-                    });
-
-                    if (!isChord) {
-                        currentDiv = pieceCurrentDiv;   // Advance the position only for non-chord notes.
-                    }
-                    lastBaseDiv = baseOnsetDiv;        // Preserve the onset, not the ending position.
-                });
-
-                const totalMeasureDivs = Math.max(measureDuration, currentDiv, 1);
-
-                if (allNotesInMeasure.length === 0) {
-                    allNotesInMeasure.push({
-                        isRest: true,
-                        staff: s,
-                        step: "C",
-                        octave: 4,
-                        alter: 0,
-                        accidental: null,
-                        type: MusicXMLPDFRenderer.getNoteType(measureDuration, currentStaffDivisions),
-                        notehead: null,
-                        dots: 0,
-                        lyric: null,
-                        onsetDiv: 0,
-                        duration: measureDuration,
-                        tieStart: false,
-                        tieStop: false,
-                        divisions: currentStaffDivisions,
-                        beatType: state.beatType || 4
-                    });
-                } else {
-                    const firstOnset = Math.min(...allNotesInMeasure.map(note => note.onsetDiv || 0));
-                    if (firstOnset > 0) {
-                        allNotesInMeasure.unshift({
-                            isRest: true,
-                            staff: s,
-                            step: "C",
-                            octave: 4,
-                            alter: 0,
-                            accidental: null,
-                            type: MusicXMLPDFRenderer.getNoteType(firstOnset, currentStaffDivisions),
-                            notehead: null,
-                            dots: 0,
-                            lyric: null,
-                            onsetDiv: 0,
-                            duration: firstOnset,
-                            tieStart: false,
-                            tieStop: false,
-                            divisions: currentStaffDivisions,
-                            beatType: state.beatType || 4
-                        });
-                    }
-                }
-
-                const columnsByOnset = {};
-                let currentBaseOnset = 0;
-
-                allNotesInMeasure.forEach(note => {
-                    const isChordNote = note.node && note.node.querySelector("chord") !== null;
-                    if (!isChordNote) {
-                        currentBaseOnset = note.onsetDiv;
-                    }
-                    
-                    const hasTie = note.tieStart || note.tieStop ? '-tie' : '';
-                    const key = `${currentBaseOnset}${hasTie}`;
-                    
-                    if (!columnsByOnset[key]) columnsByOnset[key] = [];
-                    columnsByOnset[key].push(note);
-                });
-
-                const sortedKeys = Object.keys(columnsByOnset).sort((a, b) => {
-                    const aOnset = parseInt(a);
-                    const bOnset = parseInt(b);
-                    if (aOnset !== bOnset) return aOnset - bOnset;
-                    
-                    if (a.includes('tie') && !b.includes('tie')) return 1;
-                    if (!a.includes('tie') && b.includes('tie')) return -1;
-                    return 0;
-                });
-
-                let lastX = 0;
-                const allColumns = [];
-
-                sortedKeys.forEach(key => {
-                    const onset = parseInt(key) || 0;
-                    const colNotes = columnsByOnset[key];
-                    const ratio = onset / totalMeasureDivs;
-                    const padding = 8;
-                    const xRange = measureWidth - padding * 2;
-                    const clampedRatio = Math.min(1.0, Math.max(0.0, ratio));
-                    let colX = currentX + padding + clampedRatio * xRange;
-
-                    const hasTieStart = colNotes.some(n => n.tieStart);
-                    const hasTieStop = colNotes.some(n => n.tieStop);
-                    const isChord = colNotes.length > 1;
-
-                    if (hasTieStop && !hasTieStart && !isChord && allColumns.length > 0) {
-                        colX -= 16;
-                    }
-
-                    const hasNonTie = colNotes.some(n => !n.tieStart && !n.tieStop);
-                    if (hasTieStart && hasNonTie) {
-                        colX -= 14;
-                    }
-
-                    if (colX <= lastX + 5) {
-                        colX = lastX + 12;
-                    }
-                    lastX = colX;
-
-                    // Match harmony symbols to note columns using a tolerance based on staff divisions.
-                    const tol = Math.max(4, Math.round(currentStaffDivisions / 4));
-                    const matchedHarmonies = harmoniesInMeasure.filter(h => Math.abs(h.onsetDiv - onset) < tol);
-
-                    allColumns.push({
-                        key: key,
-                        onset: onset,
-                        colX: colX,
-                        colNotes: colNotes,
-                        harmonies: matchedHarmonies,
-                        hasTieStart: hasTieStart,
-                        hasTieStop: hasTieStop,
-                        isChord: isChord
-                    });
-                });
-
-                for (let i = 0; i < allColumns.length - 1; i++) {
-                    const current = allColumns[i];
-                    const next = allColumns[i + 1];
-                    if (next.colX - current.colX < 12) {
-                        if (current.hasTieStart && !current.hasTieStop) {
-                            current.colX -= 6;
-                        }
-                        if (next.hasTieStart && !next.hasTieStop) {
-                            next.colX -= 6;
-                        }
-                        if (current.hasTieStart && next.hasTieStart) {
-                            current.colX -= 4;
-                            next.colX += 4;
-                        }
-                    }
-                }
-
-                const renderedStems = [];
-                allColumns.forEach(col => {
-                    // Render chord labels only on the first staff, aligned with the note column.
-                    if (localStaff === 1 && col.harmonies && col.harmonies.length > 0) {
-                        col.harmonies.forEach(harmony => {
-                            this.drawChordSymbol(col.colX, sY, harmony.label);
-                        });
-                    }
-
-                    // Draw the notes, including notes stacked in a chord.
-                    const stemData = this.drawNoteColumn(
-                        col.colX,
-                        sY,
-                        col.colNotes,
-                        state.clef,
-                        activeTies,
-                        channelId
-                    );
-                    if (stemData && stemData.isBeamable) {
-                        renderedStems.push(stemData);
-                    }
-                });
-
-                this.drawBeams(renderedStems);
-
-                currentStaffYOffset += (4 * this.lineSpacing);
-                if (localStaff < pInfo.numStaves) {
-                    currentStaffYOffset += this.staffSpacing * scale;
-                }
-                previousPartIndex = pInfo.partIndex;
-            }
-
-            currentX += measureWidth;
-            this.drawPageNumbers();
         }
+    }
+
+    _renderColumns(allColumns, sY, state, localStaff, channelId) {
+        const renderedStems = [];
+        allColumns.forEach(col => {
+            if (localStaff === 1 && col.harmonies && col.harmonies.length > 0) {
+                col.harmonies.forEach(h => this.drawChordSymbol(col.colX, sY, h.label));
+            }
+
+            const stemData = this.drawNoteColumn(
+                col.colX, sY, col.colNotes, state.clef, this.activeTies, channelId
+            );
+            if (stemData && stemData.isBeamable) renderedStems.push(stemData);
+        });
+
+        this.drawBeams(renderedStems);
     }
 
     /**
@@ -2825,7 +2833,7 @@ class MusicXMLPDFRenderer {
      *
      * @returns {void}
      */
-    drawPageNumbers() {
+    _drawPageNumbers() {
         if (!this.showPageNumbers) return;
 
         const totalPages = this.doc.getNumberOfPages();
@@ -2834,7 +2842,7 @@ class MusicXMLPDFRenderer {
         const restorePage = this.doc.getCurrentPageInfo().pageNumber;
 
         const x = this.PAGE_WIDTH - this.MARGIN;
-        const y = this.PAGE_HEIGHT - this.pageNumberMarginBottom;
+        const y = this.PAGE_HEIGHT - this.pageNumberMarginBottom - 8;
         const placeholderWidth = 40;
         for (let p = 1; p <= totalPages; p++) {
             this.doc.setPage(p);
@@ -2843,7 +2851,7 @@ class MusicXMLPDFRenderer {
             this.doc.rect(x - placeholderWidth, y - 10, placeholderWidth, 14, 'F');
 
             this.doc.setFont(this.FONT_SANS_SERIF, 'normal');
-            this.doc.setFontSize(9);
+            this.doc.setFontSize(9 * this.GLOBAL_SCALE);
             this.doc.setTextColor(...this.pageNumberColor);
             this.doc.text(`${p} of ${totalPages}`, x, y, { align: 'right' });
         }
