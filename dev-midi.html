@@ -416,10 +416,10 @@
             const converter = new MidiToMusicXML();
             const title = filename.replace(/\.(mid|midi)$/i, '');
             return converter.convert(arrayBuffer, {
-                title:     'Ayat Aya(2)',
-                creator:   'MIDI Preview',
+                title:     'Teman Karib',
+                creator:   'Kamshory',
                 autoSplit: false,
-                selectedTracks: [6],
+                selectedTracks: [4],
                 divisions: 512,
                 transposeBass: true,
                 lyricChannelId: 4,
@@ -446,6 +446,7 @@
                     systemSpacing: 120,
                     staffSpacing: 120,
                     partSpacing: 80,
+                    lyricFontSize: 9,
                 });
                 renderer.render(xmlText);
                 els.svgMeta.textContent = `${Math.round(performance.now() - t0)} ms`;
@@ -480,8 +481,7 @@
                             allowAltoClef: true,
 
                             // Opsi dinamis dari UI
-                            lyricYOffset: 38,
-                            lyricFontSize: 8,
+                            lyricFontSize: 9,
                             compressSilentMeasure: true,
                             showTempoChanges: true, // jika renderer mendukung
                             selectedTracks: null,

@@ -232,15 +232,36 @@ In the example above:
 
 #### `constructor(containerId, options = {})`
 
-Initializes the SVG renderer.
+Initializes the SVG renderer. `containerId` can be either the ID of the HTML element that will hold the score or the element itself. The optional `options` object controls layout, engraving, clef selection, and the comment overlay.
 
--   **`containerId`**: The ID of the HTML element where the SVG score will be rendered.
--   **`options`**: An optional configuration object.
-    -   `staffSpacing` (number): The vertical gap between staves within a single part. Defaults to `90`.
-    -   `partSpacing` (number): The additional vertical gap between different musical parts. Defaults to `65`.
-    -   `systemSpacing` (number): The vertical gap between musical systems. Defaults to `80`.
-    -   `forceMobile` (boolean): Forces mobile rendering mode. Defaults to `false`.
-    -   `autoDetectMobile` (boolean): Auto-detects mobile viewport. Defaults to `true`.
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `staffSpacing` | number | `80` | Vertical gap between staves within the same part, in SVG units. |
+| `partSpacing` | number | `80` | Additional vertical gap between different parts, in SVG units. |
+| `systemSpacing` | number | `80` | Vertical gap between successive systems, in SVG units. |
+| `forceMobile` | boolean | `false` | Forces the mobile layout regardless of viewport size. |
+| `autoDetectMobile` | boolean | `true` | Automatically selects the mobile layout for a narrow viewport. |
+| `paperBg` | string | `'#ffffff'` | SVG background color. Use `'transparent'` to inherit the CSS background. |
+| `lyricFontSize` | number | `11` | Base font size for lyric text, in pixels. |
+| `lyricFontFamily` | string | `'sans-serif'` | CSS font family used for lyric text. |
+| `stemDirectionThreshold` | number \| null | `null` | Overrides the automatic stem-direction threshold. `null` uses the clef-specific default. |
+| `autoClef` | boolean | `true` | Enables automatic clef selection based on each staff's pitch range. |
+| `allowAltoClef` | boolean | `false` | Accepted for compatibility; currently does not affect SVG auto-clef selection. |
+| `clefGtoFThreshold` | number | `4` | Accepted clef-selection threshold; currently not used by the SVG selection logic, which uses a fixed overflow threshold of 4 diatonic steps. |
+| `clefFtoGThreshold` | number | `-4` | Accepted clef-selection threshold; currently not used by the SVG selection logic, which uses a fixed overflow threshold of 4 diatonic steps. |
+| `debugAutoClef` | boolean | `false` | Enables diagnostic logging during automatic clef selection. |
+| `comments` | object[] | `[]` | Initial comments to display. Each comment should include its tick, text, color, author, track ID, and unique ID. |
+| `commentsVisible` | boolean | `true` | Shows the comment overlay on the first render when enabled. |
+| `commentMode` | boolean | `false` | Enables comment interactions such as creating, editing, and dragging comments. |
+| `commentAuthor` | string \| number \| null | `null` | Current user's ID, used for ownership and edit-permission checks. |
+| `commentTrackFilter` | Set\<number\> \| number \| null | `null` | Restricts visible comments to the specified MIDI track or tracks. |
+| `commentUserFilter` | string \| number \| null | `null` | Restricts visible comments to a single author. |
+| `onCreateRequest` | function \| null | `null` | Callback with `(tick, midiTrackId, clientX, clientY)` when the user requests a comment on an empty score area. |
+| `onEditRequest` | function \| null | `null` | Callback with `(comment, event)` when the user selects an editable comment. |
+| `onMoveRequest` | function \| null | `null` | Callback with `(comment, newTick, newMidiTrackId)` when the user finishes dragging a comment. |
+| `onError` | function \| null | `null` | Error callback with `(error, action, comment?)` when a comment callback fails. |
+| `canEdit` | function \| null | `null` | Custom permission callback with `(comment, currentAuthor)`, returning whether the comment can be edited. By default, only its author can edit it. |
+| `midiTrackIdByPartIndex` | (number \| null)[] \| null | `null` | Maps each MusicXML part index to its MIDI track ID for track-aware comment placement. |
 
 #### `render(xmlText)`
 
@@ -283,19 +304,6 @@ The SVG overflow threshold is currently fixed at 4 steps; the constructor proper
 ### Bass Guitar Octave Adjustment
 
 For a readable written bass part, use `transposeBass: true` in `MidiToMusicXML.convert()`. The converter adds 12 semitones to notes whose channel's active GM program is in `transposeBassInstruments`; no MIDI preprocessing is required. The renderers do not apply instrument-specific transposition themselves. See [Bass Instrument Transposition](#bass-instrument-transposition).
-
-### Additional Constructor Options
-
-Beyond the spacing controls documented above, the SVG constructor also accepts:
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `autoClef` | boolean | `true` | Enable automatic clef selection per staff. |
-| `allowAltoClef` | boolean | `false` | Accepted for compatibility; currently has no effect on SVG auto-clef selection. |
-| `stemDirectionThreshold` | number \| null | `null` | Overrides the automatic stem-direction threshold. `null` uses the clef-specific default. |
-| `paperBg` | string | `'#ffffff'` | SVG background color; use `'transparent'` to inherit the CSS background. |
-| `lyricFontSize` | number | `11` | Font size for lyric text. |
-| `lyricFontFamily` | string | `'sans-serif'` | Generic family applied to lyric text. |
 
 ### Paper Size and Orientation
 
