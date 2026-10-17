@@ -5,7 +5,7 @@ All notable changes to PlanetScore are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.0.2] - 2026-10-08
+## [0.0.2] - 2026-10-20
 
 Second tagged release. Focused on **multi-tempo rendering**, **automatic
 voice separation for overlapping notes**, and a **round of file-name and
@@ -123,6 +123,14 @@ the composer's export/playback layer.
 
 ### Changed
 
+- **`MidiToMusicXML`: conversion pipeline refactor.** `convert()` handles MIDI
+  parsing and conversion-option preparation, then delegates MusicXML
+  serialization to `convertParsed()`. The public entry point remains
+  `convert()`; no separate `render()` API was added.
+- **`MusicXMLSVGRenderer`: render pipeline refactor.** `render(xmlText)` now
+  coordinates dedicated helpers for initialization, MusicXML parsing and
+  validation, layout and staff setup, measure drawing, and finalization. The
+  public `render(xmlText)` API remains unchanged.
 - **PDF: tempo rendering location.** The tempo-marking block has been
   relocated out of the system-start branch into the per-measure rendering
   pass. This is a behavioral change for scores whose tempo changes fall on

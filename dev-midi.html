@@ -135,6 +135,31 @@
         .toolbar .status[data-kind="busy"]::before  { background: #f59e0b; }
         .toolbar .status[data-kind="error"]         { color: var(--err); }
 
+        /* ─── Track Button Badge ───────────────────────────── */
+        #track-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        #track-btn .track-count {
+            display: inline-block;
+            padding: 0 6px;
+            background: #e2e8f0;
+            color: #475569;
+            border-radius: 8px;
+            font-size: 0.68rem;
+            font-weight: 700;
+            line-height: 1.4;
+            min-width: 32px;
+            text-align: center;
+        }
+
+        #track-btn:hover:not(:disabled) .track-count {
+            background: rgba(255,255,255,0.28);
+            color: #fff;
+        }
+
         /* ─── Split Layout ──────────────────────────────────── */
         .split-container {
             flex: 1;
@@ -268,6 +293,215 @@
 
         .drop-overlay.active { display: flex; }
 
+        /* ─── Track Modal ───────────────────────────────────── */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(15, 23, 42, 0.5);
+            z-index: 1000;
+            padding: 1rem;
+        }
+
+        .modal-backdrop.active { display: flex; }
+
+        .modal {
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.25);
+            width: 100%;
+            max-width: 560px;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.85rem 1.1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .modal-header h2 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1rem;
+            font-weight: 700;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            line-height: 1;
+            color: var(--muted);
+            cursor: pointer;
+            padding: 0 0.3rem;
+        }
+
+        .modal-close:hover { color: var(--err); }
+
+        .modal-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.6rem 1.1rem;
+            background: #f8fafc;
+            border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
+        }
+
+        .modal-toolbar button {
+            font-size: 0.72rem;
+            padding: 0.28rem 0.55rem;
+            border: 1px solid var(--border);
+            background: #fff;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        .modal-toolbar button:hover {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+
+        .modal-toolbar .spacer { flex: 1; }
+
+        .modal-summary {
+            font-size: 0.75rem;
+            color: var(--muted);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .modal-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.75rem 1rem;
+        }
+
+        /* ─── Track Row Styling (Diperbarui) ─────────────────── */
+        .track-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.85rem 0.95rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+            border: 1px solid var(--border);
+            background: #fff;
+            margin-bottom: 0.65rem; /* Jarak antar track */
+        }
+
+        .track-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .track-row:hover {
+            background: #f8fafc;
+            border-color: #cbd5e1;
+        }
+
+        .track-row.selected {
+            background: #eff6ff;
+            border-color: #93c5fd;
+            box-shadow: 0 1px 3px rgba(59,130,246,0.1);
+        }
+
+        .track-row input[type="checkbox"] {
+            margin-top: 3px;
+            accent-color: var(--accent);
+            cursor: pointer;
+            flex-shrink: 0;
+            width: 16px;
+            height: 16px;
+        }
+
+        .track-info { flex: 1; min-width: 0; }
+
+        .track-name {
+            font-size: 0.88rem;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 5px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .track-meta {
+            font-size: 0.7rem;
+            color: var(--muted);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+        }
+
+        .track-meta .badge {
+            background: #e2e8f0;
+            padding: 1px 7px;
+            border-radius: 10px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: #475569;
+        }
+
+        .track-meta .badge.empty {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .track-meta .badge.has-notes {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
+            padding: 0.75rem 1.1rem;
+            border-top: 1px solid var(--border);
+            background: #f8fafc;
+        }
+
+        .modal-footer button {
+            font-size: 0.78rem;
+            padding: 0.42rem 0.85rem;
+            border: 1px solid var(--border);
+            background: #fff;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        .modal-footer button.primary {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+
+        .modal-footer button:hover:not(:disabled):not(.primary) {
+            background: #f1f5f9;
+        }
+
+        .modal-footer button.primary:hover:not(:disabled) {
+            background: #2563eb;
+            border-color: #2563eb;
+        }
+
+        .modal-footer button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         /* ─── Responsive ────────────────────────────────────── */
         @media (max-width: 860px) {
             .split-container { flex-direction: column; }
@@ -293,6 +527,11 @@
         <label for="midi-file-input">atau file:</label>
         <input type="file" id="midi-file-input" accept=".mid,.midi,audio/midi,audio/x-midi">
 
+        <button id="track-btn" type="button" disabled title="Pilih track MIDI untuk dirender">
+            <span>Track</span>
+            <span class="track-count" id="track-count">–</span>
+        </button>
+
         <div class="spacer"></div>
         <span class="status" id="status-label" data-kind="busy">Inisialisasi…</span>
     </div>
@@ -300,7 +539,6 @@
     <!-- ─── Split: SVG (kiri) | PDF (kanan) ──────────────── -->
     <div class="split-container">
 
-        <!-- Panel Kiri: SVG Score -->
         <div class="split-pane pane-left">
             <div class="pane-header">
                 <span>SVG Score</span>
@@ -318,7 +556,6 @@
             </div>
         </div>
 
-        <!-- Panel Kanan: PDF Preview -->
         <div class="split-pane pane-right">
             <div class="pane-header">
                 <span>PDF Preview</span>
@@ -333,10 +570,31 @@
 
     <div class="drop-overlay" id="drop-overlay">Lepaskan file MIDI di sini</div>
 
+    <!-- ─── Track Selection Modal ────────────────────────── -->
+    <div class="modal-backdrop" id="track-modal" aria-hidden="true">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="track-modal-title">
+            <div class="modal-header">
+                <h2 id="track-modal-title">Pilih Track MIDI</h2>
+                <button class="modal-close" id="track-modal-close" aria-label="Tutup">×</button>
+            </div>
+            <div class="modal-toolbar">
+                <button type="button" id="track-select-all">Pilih semua</button>
+                <button type="button" id="track-select-none">Kosongkan</button>
+                <button type="button" id="track-select-notes">Hanya yang ada not</button>
+                <span class="spacer"></span>
+                <span class="modal-summary" id="track-summary">0 / 0 dipilih</span>
+            </div>
+            <div class="modal-body" id="track-list"></div>
+            <div class="modal-footer">
+                <button type="button" id="track-modal-cancel">Batal</button>
+                <button type="button" id="track-apply" class="primary">Terapkan &amp; Render Ulang</button>
+            </div>
+        </div>
+    </div>
+
     <!-- jsPDF dari CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-    <!-- Library lokal (Live Server akan reload halaman bila salah satu berubah) -->
     <script src="MidiParser.js"></script>
     <script src="MidiToMusicXML.js"></script>
     <script src="MusicXMLSVGRenderer.js"></script>
@@ -351,25 +609,43 @@
 
         /* ─── Elemen ─────────────────────────────────────────── */
         const els = {
-            midiUrl:      document.getElementById('midi-url-input'),
-            reloadBtn:    document.getElementById('reload-btn'),
-            fileInput:    document.getElementById('midi-file-input'),
-            status:       document.getElementById('status-label'),
-            score:        document.getElementById('score-container'),
-            pdf:          document.getElementById('pdf-container'),
-            xmlBar:       document.getElementById('xml-bar'),
-            xmlBarToggle: document.getElementById('xml-bar-toggle'),
-            xmlOutput:    document.getElementById('xml-output-container'),
-            dropOverlay:  document.getElementById('drop-overlay'),
-            svgMeta:      document.getElementById('svg-meta'),
-            pdfMeta:      document.getElementById('pdf-meta'),
+            midiUrl:       document.getElementById('midi-url-input'),
+            reloadBtn:     document.getElementById('reload-btn'),
+            fileInput:     document.getElementById('midi-file-input'),
+            status:        document.getElementById('status-label'),
+            score:         document.getElementById('score-container'),
+            pdf:           document.getElementById('pdf-container'),
+            xmlBar:        document.getElementById('xml-bar'),
+            xmlBarToggle:  document.getElementById('xml-bar-toggle'),
+            xmlOutput:     document.getElementById('xml-output-container'),
+            dropOverlay:   document.getElementById('drop-overlay'),
+            svgMeta:       document.getElementById('svg-meta'),
+            pdfMeta:       document.getElementById('pdf-meta'),
+
+            trackBtn:      document.getElementById('track-btn'),
+            trackCount:    document.getElementById('track-count'),
+            trackModal:    document.getElementById('track-modal'),
+            trackModalClose:  document.getElementById('track-modal-close'),
+            trackModalCancel: document.getElementById('track-modal-cancel'),
+            trackSelectAll:   document.getElementById('track-select-all'),
+            trackSelectNone:  document.getElementById('track-select-none'),
+            trackSelectNotes: document.getElementById('track-select-notes'),
+            trackApply:       document.getElementById('track-apply'),
+            trackList:        document.getElementById('track-list'),
+            trackSummary:     document.getElementById('track-summary'),
         };
 
         const state = {
             midiUrl:  DEFAULT_MIDI,
             pdfUrl:   null,
             busy:     false,
+            midiBuffer:      null,   
+            midiLabel:       null,   
+            availableTracks: [],     
+            selectedTracks:  [],     
         };
+
+        let tempSelection = [];
 
         /* ─── Utilitas ───────────────────────────────────────── */
         function setStatus(text, kind) {
@@ -392,15 +668,10 @@
                 const u = new URL(url, location.href);
                 u.searchParams.set('__t', Date.now().toString(36));
                 return u.toString();
-            } catch (e) {
-                return url;
-            }
+            } catch (e) { return url; }
         }
 
-        function saveUrl(url) {
-            try { localStorage.setItem(STORAGE_KEY, url); } catch (e) {}
-        }
-
+        function saveUrl(url) { try { localStorage.setItem(STORAGE_KEY, url); } catch (e) {} }
         function loadUrl() {
             try {
                 const v = localStorage.getItem(STORAGE_KEY);
@@ -408,31 +679,272 @@
             } catch (e) {}
         }
 
-        /* ─── Konversi MIDI → MusicXML ───────────────────────── */
+        /* ═══════════════════════════════════════════════════════
+         * MIDI TRACK PARSER
+         * ═══════════════════════════════════════════════════════ */
+        function _readVarLen(view, pos) {
+            let value = 0, b;
+            do {
+                b = view.getUint8(pos++);
+                value = (value << 7) | (b & 0x7F);
+            } while (b & 0x80);
+            return { value, newPos: pos };
+        }
+
+        function parseMidiTrackInfo(arrayBuffer) {
+            const view = new DataView(arrayBuffer);
+            let pos = 0;
+
+            if (arrayBuffer.byteLength < 14) return [];
+            if (view.getUint32(0) !== 0x4D546864) return [];  // 'MThd'
+
+            const headerLen = view.getUint32(4);
+            const ntrks     = view.getUint16(10);
+            pos += 8 + headerLen;
+
+            const tracks = [];
+
+            while (pos + 8 <= arrayBuffer.byteLength && tracks.length < ntrks) {
+                const chunkId  = view.getUint32(pos); pos += 4;
+                const chunkLen = view.getUint32(pos); pos += 4;
+                const chunkEnd = Math.min(pos + chunkLen, arrayBuffer.byteLength);
+
+                if (chunkId === 0x4D54726B) {              // 'MTrk'
+                    let trackName = '';
+                    let noteCount = 0;
+                    let channel   = -1;
+                    let program   = null;
+                    let runningStatus = 0;
+                    let localPos = pos;
+
+                    try {
+                        while (localPos < chunkEnd) {
+                            const delta = _readVarLen(view, localPos);
+                            localPos = delta.newPos;
+                            if (localPos >= chunkEnd) break;
+
+                            let status = view.getUint8(localPos);
+                            if (status >= 0x80) {
+                                localPos++;
+                                runningStatus = status;
+                            } else {
+                                status = runningStatus;
+                            }
+
+                            if (status === 0xFF) {
+                                const metaType = view.getUint8(localPos++);
+                                const metaLen  = _readVarLen(view, localPos);
+                                localPos = metaLen.newPos;
+
+                                if (metaType === 0x03 && metaLen.value > 0) {
+                                    let s = '';
+                                    for (let i = 0; i < metaLen.value && localPos + i < chunkEnd; i++) {
+                                        s += String.fromCharCode(view.getUint8(localPos + i));
+                                    }
+                                    trackName = s;
+                                }
+                                localPos += metaLen.value;
+
+                            } else if (status === 0xF0 || status === 0xF7) {
+                                const len = _readVarLen(view, localPos);
+                                localPos = len.newPos + len.value;
+
+                            } else {
+                                const eventType = status & 0xF0;
+                                const ch        = status & 0x0F;
+
+                                if (eventType === 0x90) {
+                                    if (channel === -1) channel = ch;
+                                    if (localPos + 1 < chunkEnd) {
+                                        if (view.getUint8(localPos + 1) > 0) noteCount++;
+                                    }
+                                    localPos += 2;
+                                } else if (eventType === 0x80) {
+                                    if (channel === -1) channel = ch;
+                                    localPos += 2;
+                                } else if (eventType === 0xC0) {
+                                    if (program === null && localPos < chunkEnd) {
+                                        program = view.getUint8(localPos);
+                                    }
+                                    localPos += 1;
+                                } else if (eventType === 0xD0) {
+                                    localPos += 1;
+                                } else if (eventType === 0xA0 || eventType === 0xB0 || eventType === 0xE0) {
+                                    localPos += 2;
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Track parse warning at track', tracks.length, e);
+                    }
+
+                    tracks.push({
+                        index: tracks.length,
+                        name: trackName || `Track ${tracks.length}`,
+                        channel,
+                        noteCount,
+                        program,
+                    });
+                }
+
+                pos = chunkEnd;
+            }
+
+            // [PERUBAHAN] Filter Meta Track: Buang jika tidak ada channel DAN tidak ada not
+            return tracks.filter(t => !(t.channel === -1 && t.noteCount === 0));
+        }
+
+        /* ═══════════════════════════════════════════════════════
+         * TRACK MODAL LOGIC
+         * ═══════════════════════════════════════════════════════ */
+        function updateTrackButton() {
+            const total = state.availableTracks.length;
+            const sel   = state.selectedTracks.length;
+
+            if (total === 0) {
+                els.trackBtn.disabled = true;
+                els.trackCount.textContent = '–';
+                return;
+            }
+            els.trackBtn.disabled = state.busy;
+            els.trackCount.textContent = `${sel}/${total}`;
+        }
+
+        function openTrackModal() {
+            if (state.availableTracks.length === 0) return;
+            tempSelection = state.selectedTracks.slice();
+            renderTrackList();
+            els.trackModal.classList.add('active');
+            els.trackModal.setAttribute('aria-hidden', 'false');
+        }
+
+        function closeTrackModal() {
+            els.trackModal.classList.remove('active');
+            els.trackModal.setAttribute('aria-hidden', 'true');
+        }
+
+        function renderTrackList() {
+            els.trackList.innerHTML = '';
+
+            if (state.availableTracks.length === 0) {
+                els.trackList.innerHTML = '<p class="placeholder">Tidak ada track.</p>';
+                updateTrackSummary();
+                return;
+            }
+
+            state.availableTracks.forEach(track => {
+                const row = document.createElement('label');
+                row.className = 'track-row';
+
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.checked = tempSelection.includes(track.index);
+                if (cb.checked) row.classList.add('selected');
+
+                cb.addEventListener('change', () => {
+                    if (cb.checked) {
+                        if (!tempSelection.includes(track.index)) tempSelection.push(track.index);
+                        row.classList.add('selected');
+                    } else {
+                        tempSelection = tempSelection.filter(i => i !== track.index);
+                        row.classList.remove('selected');
+                    }
+                    updateTrackSummary();
+                });
+
+                const info = document.createElement('div');
+                info.className = 'track-info';
+
+                const name = document.createElement('div');
+                name.className = 'track-name';
+                name.textContent = track.name;
+
+                const meta = document.createElement('div');
+                meta.className = 'track-meta';
+
+                const idxBadge = document.createElement('span');
+                idxBadge.className = 'badge';
+                idxBadge.textContent = `#${track.index}`;
+                meta.appendChild(idxBadge);
+
+                const chBadge = document.createElement('span');
+                chBadge.className = 'badge';
+                chBadge.textContent = track.channel >= 0 ? `CH ${track.channel + 1}` : 'CH ?';
+                meta.appendChild(chBadge);
+
+                const noteBadge = document.createElement('span');
+                noteBadge.className = 'badge ' + (track.noteCount > 0 ? 'has-notes' : 'empty');
+                noteBadge.textContent = `${track.noteCount} not`;
+                meta.appendChild(noteBadge);
+
+                if (track.program !== null && track.program !== undefined) {
+                    const progBadge = document.createElement('span');
+                    progBadge.className = 'badge';
+                    progBadge.textContent = `P${track.program}`;
+                    meta.appendChild(progBadge);
+                }
+
+                info.appendChild(name);
+                info.appendChild(meta);
+                row.appendChild(cb);
+                row.appendChild(info);
+                els.trackList.appendChild(row);
+            });
+
+            updateTrackSummary();
+        }
+
+        function updateTrackSummary() {
+            const total = state.availableTracks.length;
+            const sel   = tempSelection.length;
+            els.trackSummary.textContent = `${sel} / ${total} dipilih`;
+            els.trackApply.disabled = (sel === 0) || state.busy;
+        }
+
+        async function applyTrackSelection() {
+            state.selectedTracks = tempSelection.slice();
+            closeTrackModal();
+            updateTrackButton();
+
+            if (!state.midiBuffer) return;
+
+            await processArrayBuffer(state.midiBuffer, state.midiLabel, {
+                force: true,
+                skipTrackParse: true,
+                preserveSelection: true,
+            });
+        }
+
+        /* ═══════════════════════════════════════════════════════
+         * Konversi MIDI → MusicXML 
+         * ═══════════════════════════════════════════════════════ */
         function midiToMusicXML(arrayBuffer, filename) {
             if (typeof MidiToMusicXML !== 'function') {
                 throw new Error('MidiToMusicXML tidak tersedia (file belum dimuat?).');
             }
             const converter = new MidiToMusicXML();
-            const title = filename.replace(/\.(mid|midi)$/i, '');
+
+            const selected = state.selectedTracks.length > 0
+                ? state.selectedTracks.slice()
+                : null;
+
             return converter.convert(arrayBuffer, {
-                title:     'Ayat Aya(2)',
-                creator:   'MIDI Preview',
+                title:     'Song Title',
+                creator:   'Composer',
                 autoSplit: false,
-                selectedTracks: [4],
+                selectedTracks: selected,
                 divisions: 512,
                 transposeBass: true,
                 lyricChannelId: 4,
-
-                // ⬇️ Kuantisasi ke grid 1/16 not
-                snapPosition: 0.0625,   // 1/16
-                snapDuration: 0.0625,   // 1/16
+                snapPosition: 0.0625,
+                snapDuration: 0.0625,
                 autoSplitOnOverlap: true,
             });
         }
 
         /* ─── Rendering ──────────────────────────────────────── */
-
         function renderSVG(xmlText) {
             els.score.innerHTML = '';
             els.svgMeta.textContent = '';
@@ -478,15 +990,15 @@
                             autoClef: true,
                             debugAutoClef: false,
                             allowAltoClef: true,
-
-                            // Opsi dinamis dari UI
                             lyricYOffset: 60,
                             lyricFontSize: 9,
                             compressSilentMeasure: true,
-                            showTempoChanges: true, // jika renderer mendukung
-                            selectedTracks: null,
+                            showTempoChanges: true,
+                            selectedTracks: state.selectedTracks.length > 0
+                                ? state.selectedTracks.slice()
+                                : null,
                             lyricChannelId: null,
-                        }
+                        };
 
                         const pdfRenderer = new MusicXMLPDFRenderer(opt);
                         pdfRenderer.render(xmlText);
@@ -517,10 +1029,31 @@
         }
 
         /* ─── Pipeline utama ─────────────────────────────────── */
+        async function processArrayBuffer(arrayBuffer, label, opts = {}) {
+            if (state.busy && !opts.force) return;
 
-        async function processArrayBuffer(arrayBuffer, label) {
-            if (state.busy) return;
             state.busy = true;
+            state.midiBuffer = arrayBuffer;
+            state.midiLabel  = label;
+
+            if (!opts.skipTrackParse) {
+                try {
+                    state.availableTracks = parseMidiTrackInfo(arrayBuffer);
+                } catch (e) {
+                    console.warn('Gagal parse track:', e);
+                    state.availableTracks = [];
+                }
+
+                if (!opts.preserveSelection || state.selectedTracks.length === 0) {
+                    const withNotes = state.availableTracks
+                        .filter(t => t.noteCount > 0)
+                        .map(t => t.index);
+                    state.selectedTracks = withNotes.length > 0
+                        ? withNotes
+                        : state.availableTracks.map(t => t.index);
+                }
+                updateTrackButton();
+            }
 
             try {
                 setStatus('Mengonversi ' + label + '…', 'busy');
@@ -528,7 +1061,6 @@
                 els.pdf.innerHTML   = '<p class="placeholder">Menunggu MusicXML…</p>';
                 els.xmlOutput.textContent = '';
 
-                // Biarkan browser melukis dulu sebelum kerja berat
                 await new Promise(r => setTimeout(r, 0));
 
                 const xmlText = midiToMusicXML(arrayBuffer, label);
@@ -537,7 +1069,10 @@
                 renderSVG(xmlText);
                 await renderPDF(xmlText);
 
-                setStatus('Siap · ' + label + ' · ' + timeStr(), 'ok');
+                const selInfo = state.selectedTracks.length > 0
+                    ? ` · ${state.selectedTracks.length}/${state.availableTracks.length} track`
+                    : '';
+                setStatus('Siap · ' + label + selInfo + ' · ' + timeStr(), 'ok');
             } catch (err) {
                 console.error('Gagal memproses:', err);
                 els.score.innerHTML =
@@ -546,6 +1081,7 @@
                 setStatus('Gagal: ' + err.message, 'error');
             } finally {
                 state.busy = false;
+                updateTrackButton();
             }
         }
 
@@ -561,9 +1097,7 @@
                 if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
                 const arrayBuffer = await res.arrayBuffer();
 
-                // Ambil nama file dari URL untuk label & title
                 let name = url.split('/').pop().split('?')[0] || 'score.mid';
-
                 await processArrayBuffer(arrayBuffer, name);
             } catch (err) {
                 console.error('Gagal memuat MIDI:', err);
@@ -572,6 +1106,8 @@
                     `Pastikan file ada & halaman dibuka via Live Server (http://).</p>`;
                 els.pdf.innerHTML = '<p class="placeholder">—</p>';
                 setStatus('Gagal: ' + err.message, 'error');
+                state.busy = false;
+                updateTrackButton();
             }
         }
 
@@ -590,7 +1126,6 @@
         }
 
         /* ─── Events ─────────────────────────────────────────── */
-
         els.xmlBarToggle.addEventListener('click', () => {
             els.xmlBar.classList.toggle('open');
         });
@@ -610,6 +1145,39 @@
             const file = e.target.files && e.target.files[0];
             if (file) loadFromFile(file);
         });
+
+        els.trackBtn.addEventListener('click', openTrackModal);
+        els.trackModalClose.addEventListener('click', closeTrackModal);
+        els.trackModalCancel.addEventListener('click', closeTrackModal);
+
+        els.trackModal.addEventListener('click', (e) => {
+            if (e.target === els.trackModal) closeTrackModal();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && els.trackModal.classList.contains('active')) {
+                closeTrackModal();
+            }
+        });
+
+        els.trackSelectAll.addEventListener('click', () => {
+            tempSelection = state.availableTracks.map(t => t.index);
+            renderTrackList();
+        });
+
+        els.trackSelectNone.addEventListener('click', () => {
+            tempSelection = [];
+            renderTrackList();
+        });
+
+        els.trackSelectNotes.addEventListener('click', () => {
+            tempSelection = state.availableTracks
+                .filter(t => t.noteCount > 0)
+                .map(t => t.index);
+            renderTrackList();
+        });
+
+        els.trackApply.addEventListener('click', applyTrackSelection);
 
         /* ─── Drag & drop file MIDI lokal ───────────────────── */
         let dragDepth = 0;
@@ -641,9 +1209,9 @@
         });
 
         /* ─── Bootstrap ──────────────────────────────────────── */
-
         loadUrl();
         els.midiUrl.value = state.midiUrl;
+        updateTrackButton();
         loadFromServer(true);
     });
     </script>
