@@ -25,7 +25,6 @@ The project runs as a static web application. No build process or server-side co
 - Select clefs based on pitch-range overflow, with different auto-clef controls in the SVG and PDF renderers.
 - Synchronize the SVG score with playback using a playhead, active-note highlighting, and optional auto-scroll.
 - Support an SVG comment overlay with callbacks for host-managed persistence.
-- Separate **playback mute** (audio-only) from **score filtering** (`muteChannels`).
 
 ## Getting Started
 
@@ -35,8 +34,6 @@ The project runs as a static web application. No build process or server-side co
 4. Adjust the available score options, such as staff splitting or snapping.
 5. View the generated MusicXML and SVG score.
 6. Generate and download the PDF score when needed.
-
-The included `Tenggelam.mid` file can be used as a sample input.
 
 For local development, serve the project directory with any static HTTP server if your browser restricts local file access. For example:
 
@@ -179,8 +176,8 @@ Overlap-based splitting is independent of these range thresholds and remains ena
 
 ```js
 const renderer = new MusicXMLSVGRenderer('score-container', {
-	staffSpacing: 90,
-	partSpacing: 65,
+    staffSpacing: 80,
+    partSpacing: 80,
 	systemSpacing: 80,
 	autoDetectMobile: true
 });
@@ -189,6 +186,37 @@ renderer.render(musicXML);
 ```
 
 The SVG renderer supports responsive layouts, beams, ties, slurs, articulations, grand-staff braces, an interactive playhead, active-note highlighting, and comments. Use `updatePlayhead()` to move the playhead and optionally scroll the score during playback; use `highlightActiveNotes()` to highlight currently sounding notes.
+
+The constructor accepts a container element ID or an `HTMLElement`. Its optional configuration properties are:
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `staffSpacing` | `number` | `80` | Vertical gap between staves within the same part, in SVG units. |
+| `partSpacing` | `number` | `80` | Additional vertical gap between different parts, in SVG units. |
+| `systemSpacing` | `number` | `80` | Vertical gap between successive systems, in SVG units. |
+| `forceMobile` | `boolean` | `false` | Forces the mobile layout regardless of viewport size. |
+| `autoDetectMobile` | `boolean` | `true` | Automatically selects the mobile layout for a narrow viewport. |
+| `paperBg` | `string` | `'#ffffff'` | SVG background color. Use `'transparent'` to inherit the CSS background. |
+| `lyricFontSize` | `number` | `11` | Base font size for lyric text, in pixels. |
+| `lyricFontFamily` | `string` | `'sans-serif'` | CSS font family used for lyric text. |
+| `stemDirectionThreshold` | `number \| null` | `null` | Overrides the automatic stem-direction threshold. `null` uses the clef-specific default. |
+| `autoClef` | `boolean` | `true` | Enables automatic clef selection based on each staff's pitch range. |
+| `allowAltoClef` | `boolean` | `false` | Accepted for compatibility; currently does not affect SVG auto-clef selection. |
+| `clefGtoFThreshold` | `number` | `4` | Accepted clef-selection threshold; currently unused by SVG, which uses a fixed overflow threshold of 4 diatonic steps. |
+| `clefFtoGThreshold` | `number` | `-4` | Accepted clef-selection threshold; currently unused by SVG, which uses a fixed overflow threshold of 4 diatonic steps. |
+| `debugAutoClef` | `boolean` | `false` | Enables diagnostic logging during automatic clef selection. |
+| `comments` | `object[]` | `[]` | Initial comments to display. Each comment should include its tick, text, color, author, track ID, and unique ID. |
+| `commentsVisible` | `boolean` | `true` | Shows the comment overlay on the first render when enabled. |
+| `commentMode` | `boolean` | `false` | Enables comment interactions such as creating, editing, and dragging comments. |
+| `commentAuthor` | `string \| number \| null` | `null` | Current user's ID, used for ownership and edit-permission checks. |
+| `commentTrackFilter` | `Set<number> \| number \| null` | `null` | Restricts visible comments to the specified MIDI track or tracks. |
+| `commentUserFilter` | `string \| number \| null` | `null` | Restricts visible comments to a single author. |
+| `onCreateRequest` | `function \| null` | `null` | Callback with `(tick, midiTrackId, clientX, clientY)` when the user requests a comment on an empty score area. |
+| `onEditRequest` | `function \| null` | `null` | Callback with `(comment, event)` when the user selects an editable comment. |
+| `onMoveRequest` | `function \| null` | `null` | Callback with `(comment, newTick, newMidiTrackId)` when the user finishes dragging a comment. |
+| `onError` | `function \| null` | `null` | Error callback with `(error, action, comment?)` when a comment callback fails. |
+| `canEdit` | `function \| null` | `null` | Custom permission callback with `(comment, currentAuthor)`, returning whether the comment can be edited. By default, only its author can edit it. |
+| `midiTrackIdByPartIndex` | `(number \| null)[] \| null` | `null` | Maps each MusicXML part index to its MIDI track ID for track-aware comment placement. |
 
 SVG auto-clef preserves the MusicXML clef unless the pitch range overflows the staff by at least four diatonic steps, then switches toward the greater overflow. It does not automatically choose alto clef. The PDF renderer uses configurable `clefMinOverflow` and can consider alto clef when `allowAltoClef: true`.
 
@@ -202,12 +230,53 @@ Ledger lines and key signatures are rendered with correct staff positions for tr
 ### Render PDF
 
 ```js
-const pdfRenderer = new MusicXMLPDFRenderer();
+const pdfRenderer = new MusicXMLPDFRenderer({
+    orientation: 'landscape',
+    paperSize: 'a4',
+    showPageNumbers: true
+});
 pdfRenderer.render(musicXML);
 pdfRenderer.save('my-score.pdf');
 ```
 
-The PDF renderer creates a vector-based, multi-page score. It requires the jsPDF browser library, which is loaded from CDN by `index.html`. Clef-aware ledger lines and key signatures are shared with the SVG renderer. Configure page size and orientation in its constructor; `save()` downloads the rendered score.
+The PDF renderer creates a vector-based, multi-page score. It requires the jsPDF browser library, which is loaded from CDN by `index.html`. Clef-aware ledger lines and key signatures are shared with the SVG renderer. Configure page setup, layout, and export options in its constructor; `save()` downloads the rendered score.
+
+Available constructor options:
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `orientation` | `string` | `'portrait'` | Page orientation: `'portrait'` or `'landscape'`. Other values use portrait. |
+| `paperSize` | `string \| number[]` | `'a4'` | jsPDF paper format (for example, `'letter'` or `'a3'`) or custom `[width, height]` dimensions in points. |
+| `format` | `string \| number[]` | `undefined` | Alias for `paperSize`; ignored when `paperSize` is provided. |
+| `scale` | `number` | `0.8` | Global multiplier for spacing, lyric offset, stem length, and lyric font size. It does not scale margins or measure widths. |
+| `margin` | `number` | `40` | Default margin in points for all page edges unless overridden per side. |
+| `marginTop` | `number` | `margin` | Top margin for the first page, in points. |
+| `marginRight` | `number` | `margin` | Right page margin, in points. |
+| `marginBottom` | `number` | `margin` | Bottom page margin, in points. |
+| `marginLeft` | `number` | `margin` | Left page margin, in points. |
+| `marginTopOtherPages` | `number` | `marginTop + 12` | Top margin on pages after the first, in points. |
+| `staffSpacing` | `number` | `80` | Gap between staves in the same part. Multiplied by `scale`. |
+| `partSpacing` | `number` | `80` | Gap between different parts. Multiplied by `scale`. |
+| `systemSpacing` | `number` | `80` | Gap between successive systems. Multiplied by `scale`. |
+| `lyricYOffset` | `number` | `60` | Distance from the staff to the lyric baseline. Multiplied by `scale`. |
+| `stemLength` | `number` | `24` | Minimum note stem length. Multiplied by `scale`. |
+| `lyricFontSize` | `number` | `10` | Lyric font size. Multiplied by `scale` when drawn. |
+| `lyricFontFamily` | `string` | `'sans-serif'` | Lyric font family: `'sans-serif'`, `'serif'`, or `'monospace'`, mapped to a jsPDF-safe font. |
+| `minMeasureWidth` | `number` | `150` | Minimum measure width in points. |
+| `idealMeasureWidth` | `number \| null` | `null` | Preferred measure width in points; defaults internally to `200` with lyrics and `220` without. |
+| `maxMeasuresPerLine` | `number \| null` | `null` | Maximum measures per system; otherwise derived from page dimensions and lyric presence. |
+| `firstSystemGap` | `number` | `20` | Extra vertical space in points between the title block and first system. |
+| `autoClef` | `boolean` | `true` | Enables automatic clef selection based on each staff's pitch range. |
+| `allowAltoClef` | `boolean` | `false` | Allows alto clef to be selected by the auto-clef logic. |
+| `clefMinOverflow` | `number` | `4` | Diatonic overflow required before changing from the source clef. |
+| `debugAutoClef` | `boolean` | `false` | Enables diagnostic logging during clef selection. |
+| `stemDirectionThreshold` | `number` | `7` | Diatonic threshold for automatic stem-direction flipping. |
+| `selectedChannels` | `number[] \| null` | `null` | MIDI channel indices used with `selectedTrack` to identify a single-part render. |
+| `selectedTrack` | `number[] \| null` | `null` | MIDI track indices used with `selectedChannels` to identify a single-part render. |
+| `compressSilentMeasure` | `boolean` | `false` | Merges consecutive silent measures into a multi-measure rest for single-part scores. |
+| `showPageNumbers` | `boolean` | `true` | Shows an `N of M` footer at the bottom-right of each page. |
+| `pageNumberColor` | `number[]` | `[100, 116, 139]` | RGB color for page-number text. |
+| `pageNumberMarginBottom` | `number` | `18` | Distance in points from the bottom edge to the page-number baseline. |
 
 ### Playback Mute vs. Score Mute
 
@@ -225,7 +294,6 @@ Playback mute is applied separately at the audio layer (via the `TimidityPlayer`
 | `MusicXMLSVGRenderer.js` | MusicXML-to-SVG renderer. |
 | `MusicXMLPDFRenderer.js` | MusicXML-to-PDF renderer. |
 | `style.css` | Styles for the standalone page. |
-| `Tenggelam.mid` | Example MIDI file. |
 | `manual.md` | Extended API and implementation documentation. |
 | `*.min.js` | Minified distribution copies of the JavaScript libraries. |
 
