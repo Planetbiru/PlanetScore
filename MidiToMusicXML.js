@@ -202,8 +202,8 @@ class MidiToMusicXML {
 
         const ppq = parsed.header.ppq;
 
-        // snapPosition / snapDuration dalam satuan not (misal 1/8 = 0.125)
-        // 1 not penuh = 4 * ppq ticks, jadi 1/8 not = 0.125 * 4 * ppq ticks
+        // snapPosition / snapDuration are in note units (e.g. 1/8 = 0.125).
+        // One whole note = 4 * ppq ticks, so an eighth note = 0.125 * 4 * ppq ticks.
         const snapPosTicks = (opts.snapPosition != null && opts.snapPosition > 0)
             ? Math.max(1, Math.round(opts.snapPosition * 4 * ppq))
             : null;
@@ -791,7 +791,7 @@ class MidiToMusicXML {
                     3: 0  // lastNoteXmlEnd for staff 3
                 };
 
-                // Kumpulkan semua elemen not dan sisipan dalam birama ini sebelum menuliskannya
+                // Collect all notes and insertions in this measure before writing them.
                 const measureElements = [];
 
                 const tieKeys = Object.keys(tieContinue).map(Number);
@@ -878,7 +878,7 @@ class MidiToMusicXML {
                 const noteGroups = {};
                 notesInMeasure.forEach(note => {
                     const offsetTicks = note.ticks - measureStartTick;
-                    // Konversi tick ke divisi (pembulatan ini yang menyatukan not akor)
+                    // Convert ticks to divisions (this rounding groups chord notes together).
                     const xmlStart = Math.round((offsetTicks * divisions) / ppq);
                     
                     let staff;
@@ -896,7 +896,7 @@ class MidiToMusicXML {
                         );
                     }
                     
-                    // Kunci unik: posisi waktu + staff
+                    // Unique key: time position + staff.
                     const groupKey = `${xmlStart}_${staff}`;
                     if (!noteGroups[groupKey]) {
                         noteGroups[groupKey] = { xmlStart, staff, notes: [] };
@@ -904,20 +904,20 @@ class MidiToMusicXML {
                     noteGroups[groupKey].notes.push(note);
                 });
 
-                // Urutkan grup berdasarkan waktu mulai
+                // Sort groups by start time.
                 const sortedGroups = Object.values(noteGroups).sort((a, b) => a.xmlStart - b.xmlStart);
 
                 sortedGroups.forEach(group => {
                     const { xmlStart, staff } = group;
                     
-                    // Urutkan not di dalam akor dari pitch terendah ke tertinggi
+                    // Sort notes in each chord from lowest to highest pitch.
                     group.notes.sort((a, b) => a.midi - b.midi);
 
                     group.notes.forEach((note, index) => {
-                        // Not pertama bukan chord, not kedua dan seterusnya adalah chord
+                        // The first note is not a chord; the second and subsequent notes are.
                         const isChord = (index > 0);
 
-                        // Fill gap with rest (hanya untuk not pertama di grup)
+                        // Fill the gap with rests (only for the first note in the group).
                         if (opts.useRestFilling && !isChord) {
                             const gapDivs = xmlStart - staffCursor[staff];
                             if (gapDivs > 0) {
@@ -960,7 +960,7 @@ class MidiToMusicXML {
                         let noteDivs = Math.round((noteDurationTicks * divisions) / ppq);
                         if (noteDivs <= 0 && noteDurationTicks > 0) noteDivs = 1;
 
-                        // Lyric (hanya di staff 1)
+                        // Lyrics (staff 1 only).
                         let lyricText = null;
                         if (staff === 1 && lyricCarrier[note.ticks]) {
                             lyricText = lyricCarrier[note.ticks];
@@ -994,7 +994,7 @@ class MidiToMusicXML {
                             }
                         }
 
-                        // Split duration jika tidak representatif (misal melintasi birama)
+                        // Split the duration if it is not representable (e.g. when it crosses a measure).
                         if (noteDivs > 0) {
                             const notePieces = this.splitIntoRepresentableDurations(noteDivs, divisions);
                             if (notePieces.length > 1) {
@@ -1060,7 +1060,7 @@ class MidiToMusicXML {
                             }
                         }
 
-                        // Update cursor hanya untuk not pertama (bukan chord)
+                        // Update the cursor only for the first note (not a chord note).
                         if (!isChord) {
                             staffCursor[staff] = xmlStart + noteDivs;
                         }
@@ -1191,22 +1191,22 @@ class MidiToMusicXML {
         const scoreParts = Array.from(doc.querySelectorAll("part-list > score-part"));
         if (scoreParts.length === 0) return [];
 
-        // Bangun peta: channel (0-based) → track id dari parsedMidi
-        // Track di MidiParser punya properti `channels` = array channel yang dipakai.
+        // Build a map: channel (0-based) → track ID from parsedMidi.
+        // MidiParser tracks have a `channels` property containing the channels they use.
         const channelToTrackId = new Map();
         if (parsedMidi && Array.isArray(parsedMidi.tracks)) {
             parsedMidi.tracks.forEach((t, idx) => {
                 if (!t.notes || t.notes.length === 0) return;   // skip meta track
                 if (Array.isArray(t.channels)) {
                     t.channels.forEach(ch => {
-                        // Satu channel bisa dipakai beberapa track → ambil yang pertama
+                        // A channel can be used by multiple tracks → use the first one.
                         if (!channelToTrackId.has(ch)) channelToTrackId.set(ch, idx);
                     });
                 }
             });
         }
 
-        // Untuk setiap part, baca <midi-channel> (1-based) dan petakan ke track
+        // For each part, read <midi-channel> (1-based) and map it to a track.
         return scoreParts.map(sp => {
             const chEl = sp.querySelector("midi-instrument midi-channel");
             if (!chEl) return null;
@@ -1729,16 +1729,16 @@ class MidiToMusicXML {
     splitIntoRepresentableDurations(duration, divisions) {
         const pieces = [];
         let remaining = duration;
-        const epsilon = 0.01; // Toleransi untuk perbandingan float
+        const epsilon = 0.01; // Tolerance for floating-point comparisons.
 
-        // Pra-hitung semua durasi standar yang dapat direpresentasikan dalam divisi
+        // Precompute all standard durations that can be represented in divisions.
         const standardDurations = [];
         const typeValues = [
             { val: 8 }, { val: 4 }, { val: 2 }, { val: 1 }, { val: 0.5 },
             { val: 0.25 }, { val: 0.125 }, { val: 0.0625 }, { val: 0.03125 },
             { val: 0.015625 }, { val: 0.0078125 }
         ];
-        // Sertakan durasi dengan titik (single, double, triple)
+        // Include dotted durations (single, double, triple).
         const dottedFactors = [1.875, 1.75, 1.5, 1.0];
 
         typeValues.forEach(type => {
@@ -1749,12 +1749,12 @@ class MidiToMusicXML {
                 }
             });
         });
-        // Urutkan dari terbesar ke terkecil untuk memastikan kita selalu memilih bagian terbesar yang memungkinkan
+        // Sort from largest to smallest to always choose the largest possible piece.
         standardDurations.sort((a, b) => b - a);
 
         while (remaining > epsilon) {
             let foundPiece = 0;
-            // Temukan durasi standar terbesar yang pas dengan sisa durasi
+            // Find the largest standard duration that fits in the remaining duration.
             for (const d of standardDurations) {
                 if (d <= remaining + epsilon) {
                     foundPiece = d;
@@ -1766,7 +1766,7 @@ class MidiToMusicXML {
                 pieces.push(foundPiece);
                 remaining -= foundPiece;
             } else {
-                // Jika tidak ada bagian standar yang pas, berarti sisanya terlalu kecil. Akhiri loop.
+                // If no standard piece fits, the remainder is too small. End the loop.
                 if (remaining > epsilon) pieces.push(Math.round(remaining));
                 break;
             }

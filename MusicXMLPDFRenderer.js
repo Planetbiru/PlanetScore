@@ -549,7 +549,7 @@ class MusicXMLPDFRenderer {
                 + (index < this.partStaffMap.length - 1 ? this.partSpacing * scale : 0);
         });
 
-        // Label nomor measure di atas sistem
+        // Measure number label above the system
         const systemLabel = (renderMeasure && renderMeasure.compressedCount > 1)
             ? `${renderMeasure.originalStart}–${renderMeasure.originalEnd}`
             : `${displayMeasureNumber}`;
@@ -795,7 +795,6 @@ class MusicXMLPDFRenderer {
             }
             const sY = this.currentY + currentStaffYOffset;
 
-            // Cari MIDI channel untuk notasi perkusi
             let channelId = -1;
             const partId = pInfo.partNode.getAttribute('id');
             const entry  = this.xmlDoc.querySelector(`part-list score-part[id="${partId}"]`);
@@ -1621,14 +1620,14 @@ class MusicXMLPDFRenderer {
 
         const avgDiatonic = calculatedNotes.reduce((sum, n) => sum + n.diatonic, 0) / calculatedNotes.length;
 
-        // Garis tengah staff berbeda per clef:
+        // The middle staff line differs by clef:
         //   Treble (G): B4 → diatonic 6
         //   Alto   (C): C4 → diatonic 0
         //   Bass   (F): D3 → diatonic -5
         const middleLineByClef = { 'G': 6, 'C': 0, 'F': -5 };
         const middleLine = middleLineByClef[clefType] ?? 6;
 
-        // Note pada atau di atas garis tengah → stem ke bawah.
+        // Notes on or above the middle line → stems point down.
         const stemDown = avgDiatonic >= middleLine;
 
         calculatedNotes.forEach(note => {
@@ -1732,7 +1731,7 @@ class MusicXMLPDFRenderer {
         if (firstNoteType !== "whole") {
             const gs = this.GLOBAL_SCALE ?? 1.0;
             const stemLength = Math.max(18 * gs, this.lineSpacing * 3);
-            const noteheadRx = 7.0 * 0.8 * gs;         // samakan dengan drawNotehead
+            const noteheadRx = 7.0 * 0.8 * gs;         // Match drawNotehead.
             const stemOffset = noteheadRx * 0.85;
             stemX = stemDown ? x - stemOffset : x + stemOffset;
             stemStartY = stemDown ? highestNote.y + 0.5 * gs : lowestNote.y - 0.5 * gs;
@@ -1818,9 +1817,9 @@ class MusicXMLPDFRenderer {
 
     /**
      * Draws a grouped beam for a connected set of note stems.
-     * Beam level 1 (primary) selalu digambar dari note pertama sampai terakhir.
-     * Beam level 2 dan 3 digambar per contiguous run, sehingga note dengan
-     * durasi lebih panjang di tengah grup tidak "dilewati" oleh beam sekunder.
+    * Beam level 1 (primary) is always drawn from the first note to the last.
+    * Beam levels 2 and 3 are drawn for each contiguous run, so notes with
+    * longer durations in the middle of a group are not "skipped" by secondary beams.
      *
      * @param {Array<Object>} group Stem metadata objects in one beam group.
      * @returns {void}
@@ -1876,7 +1875,7 @@ class MusicXMLPDFRenderer {
                 px2 -= beamOffset;
             }
 
-            const thickness = 3.5 * gs;     // was 3.5
+            const thickness = 3.5 * gs;
             const t2 = thickness / 2;
             
             this.doc.setFillColor(...this.engraverColor);
@@ -2182,7 +2181,7 @@ class MusicXMLPDFRenderer {
                 const hookPath = "M 1.098 0 C 0.578 0.098 0.18 0.457 0 0.953 C -0.039 1.113 -0.039 1.152 -0.039 1.371 C -0.039 1.672 -0.02 1.832 0.121 2.07 C 0.32 2.469 0.738 2.789 1.215 2.906 C 1.715 3.047 3 3.153 4 2.153 L 4.941 0.598 C 4.844 0.477 4.645 0.438 4.523 0.535 C 4.484 0.574 4.422 0.656 4.383 0.715 C 4.203 1.016 3.746 1.551 3.508 1.75 C 3.289 1.93 3.168 1.949 2.969 1.871 C 2.789 1.773 2.73 1.672 2.609 1.133 C 2.492 0.598 2.352 0.355 2.051 0.156 C 1.773 -0.023 1.414 -0.082 1.098 0 z";
                 let scale = this.GLOBAL_SCALE ?? 1.0;
                 
-                // ==== Parameter ukuran flag (DISAMAKAN DENGAN SVG) ====
+                // Flag size parameter
                 const hookScale = 2.2 * scale; 
                 const HOOK_NATIVE_W = 4.941;
                 const HOOK_NATIVE_H = 2.906;
@@ -2190,48 +2189,44 @@ class MusicXMLPDFRenderer {
                 const hookH = HOOK_NATIVE_H * hookScale;
                 const flagGap = hookH * 1.25;
 
-                // ==== Posisi stem (DISAMAKAN DENGAN SVG) ====
+                // Stem position
                 const xPos = x;
-                let stemTopX = xPos + 4 * scale; // Diubah dari +3
-                let stemTopY = y + 10 * scale;   // Diubah dari +10
+                let stemTopX = xPos + 4 * scale;
+                let stemTopY = y + 10 * scale;
                 let stemBotX = xPos - 1 * scale;             
-                let stemBotY = y + 30 * scale;   // Diubah dari +30
+                let stemBotY = y + 30 * scale;
 
                 if (type === '32nd') {
                     const slope = (stemBotX - stemTopX) / (stemBotY - stemTopY);
                     stemTopY = y + 2 * scale; 
-                    // Pertahankan gradien
                     stemBotX = stemTopX + (stemBotY - stemTopY) * slope;
                 }
 
-                // ==== Hitung gradient stem ====
+                // Calculate stem gradient
                 const stemDx = stemBotX - stemTopX;    
                 const stemDy = stemBotY - stemTopY;    
                 const stemSlope = stemDy !== 0 ? (stemDx / stemDy) : 0;   
 
-                // Gambar stem
+                // Draw stem
                 this.doc.setDrawColor(...color);
                 this.doc.setLineWidth(1.2 * scale);
                 this.doc.line(stemTopX, stemTopY, stemBotX, stemBotY);
 
-                // Gambar flag
+                // Draw flag
                 this.doc.setFillColor(...color);
                 const flag1X = stemTopX - hookW;
                 const flag1Y = stemTopY - hookH * 0.2; 
 
-                // Tentukan jumlah flag berdasarkan tipe
                 let numFlags = 1;
                 if (type === '16th') numFlags = 2;
                 if (type === '32nd') numFlags = 3;
 
-                // Loop untuk menggambar semua flag (menjamin tidak ada yang hilang)
                 for (let i = 0; i < numFlags; i++) {
                     const flagX = flag1X + stemSlope * (flagGap * i);
                     const flagY = flag1Y + (flagGap * i);
                     this.drawSVGPath(hookPath, flagX, flagY, hookScale, hookScale, true);
                 }
 
-                // Update restInfo jika diperlukan
                 if (typeof restInfo !== 'undefined') {
                     restInfo.xPos = stemTopX;
                     restInfo.y = y + 2 * this.lineSpacing;
@@ -2321,9 +2316,9 @@ class MusicXMLPDFRenderer {
      */
     drawChordSymbol(x, staffTopY, label) {
         if (!label) return;
-        const chordY = staffTopY - 16 * this.GLOBAL_SCALE;   // ← posisi menyesuaikan
+        const chordY = staffTopY - 16 * this.GLOBAL_SCALE;   // ← position is adjusted.
         this.doc.setFont(this.FONT_SANS_SERIF, 'bold');
-        this.doc.setFontSize(10 * this.GLOBAL_SCALE);        // ← ukuran menyesuaikan
+        this.doc.setFontSize(10 * this.GLOBAL_SCALE);        // ← size is adjusted.
         this.doc.setTextColor(...this.engraverColor);
         this.doc.text(label, x, chordY, { align: 'center' });
     }
@@ -2800,8 +2795,8 @@ class MusicXMLPDFRenderer {
     drawMultiMeasureRest(x, y, width, count) {
         const midY = y + 2 * this.lineSpacing;
 
-        // Bar multi-rest menempati sebagian besar kolomnya (proporsi terhadap lebar kolom).
-        // Batas atas menjaga bar tidak terlalu lebar di kolom yang sangat lebar.
+        // The multi-rest bar takes up most of its column (in proportion to the column width).
+        // The upper border keeps the bar from becoming too wide in very wide columns.
         const MAX_BAR_WIDTH = 200 * this.GLOBAL_SCALE;
         const barWidth = Math.min(width * 0.65, MAX_BAR_WIDTH);
 
