@@ -2171,7 +2171,7 @@ class MusicXMLPDFRenderer {
                 const qPath = "M349 372c-14-12-44-43-65-102-21-58 25-95 50-114q12-7-1-21L219 9c-13-17-30-7-20 7 120 171-35 197-35 197s17 44 97 115c-84-22-139 40-97 104 41 64 120 78 127 80s18-4 7-11c-26-17-79-61-54-93 34-42 84-23 97-17 22 11 31-1 8-19";
                 const qTx = x - 8;
                 const qTy = y + 2.2;
-                const qScale = 0.042;
+                const qScale = 0.040;
                 this.doc.setFillColor(...color);
                 this.drawSVGPath(qPath, qTx, qTy, qScale, qScale, true);
                 break;
