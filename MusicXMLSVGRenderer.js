@@ -221,39 +221,39 @@ class MusicXMLSVGRenderer {
 
         this.stepOffsets = { 'C': 0, 'D': 1, 'E': 2, 'F': 3, 'G': 4, 'A': 5, 'B': 6 };
         // === Stem direction ===
-        // Ambang batas diatonic (posisi note di staff) saat stem otomatis
-        // mengarah ke bawah. Semakin KECIL nilainya, semakin cepat stem berubah
-        // ke bawah begitu note mulai naik.
+        // Diatonic threshold (note position on the staff) at which stems
+        // automatically point down. The SMALLER the value, the sooner stems
+        // switch downward as notes rise.
         //
-        // Referensi diatonic (treble):
-        //   E4 = 2  (garis bawah)
-        //   G4 = 4  (garis kedua)
-        //   B4 = 6  (garis tengah) ← aturan baku
-        //   D5 = 8  (garis keempat)
-        //   F5 = 10 (garis atas)
-        //   A5 = 12 (ledger pertama di atas staff)
+        // Diatonic reference (treble):
+        //   E4 = 2  (bottom line)
+        //   G4 = 4  (second line)
+        //   B4 = 6  (middle line) ← standard rule
+        //   D5 = 8  (fourth line)
+        //   F5 = 10 (top line)
+        //   A5 = 12 (first ledger line above the staff)
         //
-        // Default per clef (dipakai jika option tidak di-set):
-        //   Treble: 4  (G4) — stem turun begitu rata-rata mencapai G4
-        //   Alto  : 0  (C4) — tepat di garis tengah alto
-        //   Bass  : -4 (F3) — satu langkah di bawah garis tengah bass (D3)
+        // Defaults per clef (used when the option is not set):
+        //   Treble: 4  (G4) — stems point down when the average reaches G4
+        //   Alto  : 0  (C4) — exactly on the alto middle line
+        //   Bass  : -4 (F3) — one step below the bass middle line (D3)
         //
-        // Set ke null (default) untuk memakai aturan bawaan per clef.
-        // Set ke angka lebih kecil (mis. 2 / E4) untuk lebih agresif.
-        // null → pakai default per clef di drawNoteColumn()
+        // Set to null (default) to use the built-in rule for each clef.
+        // Set to a smaller number (e.g., 2 / E4) for more aggressive behavior.
+        // null → use the per-clef default in drawNoteColumn()
         this.stemDirectionThreshold = (options.stemDirectionThreshold === undefined)
             ? null
             : options.stemDirectionThreshold;
 
         // === Auto-clef ===
-        // Pilih clef (G/F/C) secara otomatis per staff berdasarkan
-        // distribusi pitch, untuk mencegah melodi rendah tumpang tindih
-        // dengan baris lirik.
+        // Automatically choose a clef (G/F/C) for each staff based on
+        // pitch distribution, to prevent low melodies from overlapping
+        // the lyric lines.
         this.autoClef = options.autoClef !== false;
         this.allowAltoClef = options.allowAltoClef === true;
 
-        // Ambang swap clef (diatonic step): C4=0, E4=2, G4=4, B4=6, D3=-6.
-        // Semakin tinggi, semakin agresif swap ke bass.
+        // Clef-swap threshold (diatonic step): C4=0, E4=2, G4=4, B4=6, D3=-6.
+        // The higher the value, the more aggressively it switches to bass clef.
         this.clefGtoFThreshold = options.clefGtoFThreshold ?? 4;
         this.clefFtoGThreshold = options.clefFtoGThreshold ?? -4;
 
@@ -389,7 +389,7 @@ class MusicXMLSVGRenderer {
             totalSystemStaves += numStaves;
         });
 
-        // Simpan ke instance
+        // Store on the instance
         this.xmlDoc            = xmlDoc;
         this._parts            = parts;
         this._partMeasures     = partMeasures;
@@ -529,16 +529,16 @@ class MusicXMLSVGRenderer {
         const rs = this._renderState;
         const isSystemStart = (measureIdx % this.measuresPerLine === 0);
 
-        // 1. Pindah ke sistem baru jika perlu
+        // 1. Move to a new system if needed
         if (measureIdx > 0 && isSystemStart) {
             rs.currentY += this.rowSpacing;
             rs.currentX  = this._leftMargin;
         }
 
-        // 2. Sinkronkan state dari <attributes>
+        // 2. Synchronize state from <attributes>
         this._updateStaffStateFromMeasure(measureIdx);
 
-        // 3. Gambar awal sistem (staff lines, clef, key, time, brace)
+        // 3. Draw the system opening (staff lines, clef, key, time, brace)
         if (isSystemStart) {
             this._renderSystemStart(measureIdx);
         }
@@ -546,10 +546,10 @@ class MusicXMLSVGRenderer {
         // 4. Tempo
         this._renderTempoMarkings(measureIdx);
 
-        // 5. Isi measure (notes + barline kanan)
+        // 5. Fill the measure (notes + right barline)
         this._renderMeasureContent(measureIdx);
 
-        // 6. Majukan posisi
+        // 6. Advance the position
         rs.currentX += this._measureWidth;
         const measureDuration = this._staffState[1].beats * this._staffState[1].divisions;
         this._cumulativeTick += measureDuration;
@@ -607,7 +607,7 @@ class MusicXMLSVGRenderer {
         const rs    = this._renderState;
         const scale = this._scale;
 
-        // Finalisasi sistem sebelumnya
+        // Finalize the previous system
         if (rs.currentSystemMeta) {
             rs.currentSystemMeta.endTick = this._cumulativeTick;
             rs.currentSystemMeta.xEnd    = this._systemStartX + rs.systemRowWidth;
@@ -619,7 +619,7 @@ class MusicXMLSVGRenderer {
             }
         }
 
-        // Buat grup sistem baru
+        // Create a new system group
         rs.systemNumber += 1;
         const systemGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
         systemGroup.setAttribute("id", `system-${rs.systemNumber}`);
@@ -868,7 +868,7 @@ class MusicXMLSVGRenderer {
             }
             const sY = rs.currentY + currentStaffYOffset;
 
-            // Marker untuk playhead/comment mapping
+            // Marker for playhead/comment mapping
             const staffMarker = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             staffMarker.setAttribute('data-part-index', String(pInfo.partIndex));
             staffMarker.setAttribute('data-staff-id',   String(s));
@@ -893,7 +893,7 @@ class MusicXMLSVGRenderer {
             const mNode       = this._partMeasureMap[pInfo.partIndex].get(measureNum);
 
             if (!mNode) {
-                // Measure kosong → gambar whole/half rest
+                // Empty measure → draw a whole or half rest
                 const restType = state.beats >= 4 ? 'whole' : 'half';
                 const noteX    = rs.currentX + this._measureWidth / 2;
                 this.drawRest(noteX - 2, sY, restType);
@@ -929,7 +929,7 @@ class MusicXMLSVGRenderer {
 
         const totalMeasureDivs = Math.max(measureDuration, currentDiv, 1);
 
-        // Tambahkan rest jika perlu
+        // Add a rest if needed
         if (allNotesInMeasure.length === 0) {
             allNotesInMeasure.push(
                 this._makeRestNote(staffId, 0, measureDuration, currentStaffDivisions, state)
@@ -1159,7 +1159,7 @@ class MusicXMLSVGRenderer {
 
         this.svg = this._svgRoot;
 
-        // Tutup sistem terakhir
+        // Close the final system
         if (rs.currentSystemMeta) {
             rs.currentSystemMeta.endTick = this._cumulativeTick;
             rs.currentSystemMeta.xEnd    = this._systemStartX + rs.systemRowWidth;
@@ -1378,7 +1378,7 @@ class MusicXMLSVGRenderer {
         const measures = this._svgRoot.querySelectorAll('g[data-measure-number][data-start-tick]');
         if (measures.length === 0) return null;
 
-        // Cari measure yang mengandung tick (tidak berubah)
+        // Find the measure containing the tick (unchanged)
         let targetMeasure = measures[0];
         for (const m of measures) {
             const s = parseFloat(m.dataset.startTick);
@@ -1530,7 +1530,7 @@ class MusicXMLSVGRenderer {
     renderComments() {
         if (!this._svgRoot) return;
 
-        // Siapkan overlay group
+        // Prepare the overlay group
         let overlay = this._svgRoot.querySelector('#comments-overlay');
         if (!overlay) {
             overlay = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -1544,7 +1544,7 @@ class MusicXMLSVGRenderer {
 
         
 
-        // Pasang listener "klik area kosong" sekali
+        // Attach the "click empty area" listener once
         if (!this._commentCreateAttached) {
             this._attachCommentCreateHandler();
             this._commentCreateAttached = true;
@@ -1617,7 +1617,7 @@ class MusicXMLSVGRenderer {
             const xVisual     = coords.x + offsetX;
             const widthVisual = rectWidth * COMMENT_SCALE;
 
-            // Cari Y bebas tabrakan (stack ke atas)
+            // Find a collision-free Y position (stack upward)
             let currentY = coords.y - 14;
             const MAX_ATTEMPTS = 50;
             let attempts = 0;
@@ -1649,7 +1649,7 @@ class MusicXMLSVGRenderer {
             const icon = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             icon.setAttribute('class', 'comment-indicator');
             icon.setAttribute('data-comment-id', String(comment.id ?? comment.track_comment_id ?? ''));
-            // Tandai komentar milik user saat ini (untuk styling CSS)
+            // Mark comments owned by the current user (for CSS styling)
             if (this.isMyComment(comment)) icon.classList.add('is-mine');
             icon.style.cursor = (this.commentMode && this.canEditComment(comment)) ? 'pointer' : 'default';
             icon.style.userSelect = 'none';
@@ -1710,7 +1710,7 @@ class MusicXMLSVGRenderer {
         const self = this;
         const DRAG_THRESHOLD_PX = 3;
 
-        /** Baca translate(x,y) dari atribut transform ikon. */
+        /** Read translate(x,y) from the icon's transform attribute. */
         const readTranslate = (el) => {
             const s = el.getAttribute('transform') || '';
             const m = /translate\(\s*([-\d.eE+]+)\s*[,\s]\s*([-\d.eE+]+)\s*\)/.exec(s);
@@ -1730,15 +1730,15 @@ class MusicXMLSVGRenderer {
             const startClientX = e.clientX ?? e.touches[0].clientX;
             const startClientY = e.clientY ?? e.touches[0].clientY;
 
-            // Posisi cursor dalam koordinat SVG saat mousedown
+            // Cursor position in SVG coordinates at mousedown
             const startPt = svg.createSVGPoint();
             startPt.x = startClientX;
             startPt.y = startClientY;
             const startSvgP = startPt.matrixTransform(svg.getScreenCTM().inverse());
 
-            // Posisi ikon AKTUAL dari DOM (source of truth).
-            // Lebih andal daripada menghitung dari `coords`, karena tetap benar
-            // walau parent belum rebuild overlay setelah drag sebelumnya.
+            // ACTUAL icon position from the DOM (source of truth).
+            // More reliable than calculating from `coords`, since it remains
+            // correct even if the parent has not rebuilt the overlay after a previous drag.
             const cur = readTranslate(icon) || {
                 x: coords.x + offsetX,
                 y: coords.y - 14 + offsetY
@@ -1746,9 +1746,9 @@ class MusicXMLSVGRenderer {
             const iconX = cur.x;
             const iconY = cur.y;
 
-            // KUNCI: simpan offset cursor terhadap pojok kiri-atas ikon.
-            // Inilah yang membuat drag terasa natural — titik yang di-grab
-            // tetap berada di bawah cursor selama drag.
+            // KEY: store the cursor offset relative to the icon's top-left corner.
+            // This makes dragging feel natural — the grabbed point stays
+            // under the cursor throughout the drag.
             const grabOffsetX = startSvgP.x - iconX;
             const grabOffsetY = startSvgP.y - iconY;
 
@@ -1758,7 +1758,7 @@ class MusicXMLSVGRenderer {
                 const mX = eMove.clientX ?? eMove.touches[0].clientX;
                 const mY = eMove.clientY ?? eMove.touches[0].clientY;
 
-                // Threshold kecil agar jitter saat klik tidak dianggap drag
+                // Use a small threshold so click jitter is not treated as a drag
                 if (!hasMoved) {
                     const dx0 = mX - startClientX;
                     const dy0 = mY - startClientY;
@@ -1771,8 +1771,8 @@ class MusicXMLSVGRenderer {
                 movePt.y = mY;
                 const moveSvgP = movePt.matrixTransform(svg.getScreenCTM().inverse());
 
-                // Posisi baru ikon = posisi cursor − grab offset.
-                // Dengan begitu offset cursor relatif terhadap ikon tetap.
+                // New icon position = cursor position − grab offset.
+                // This keeps the cursor offset relative to the icon unchanged.
                 const newX = moveSvgP.x - grabOffsetX;
                 const newY = moveSvgP.y - grabOffsetY;
 
@@ -1790,16 +1790,16 @@ class MusicXMLSVGRenderer {
                 window.__commentJustDragged = true;
                 setTimeout(() => window.__commentJustDragged = false, 200);
 
-                // Baca transform akhir dari DOM
+                // Read the final transform from the DOM
                 const fin = readTranslate(icon) || { x: iconX, y: iconY };
 
-                // Anchor tick (posisi staff Y) dalam viewBox space
+                // Anchor tick (staff Y position) in viewBox space
                 const clickX = fin.x - offsetX;
                 const clickY = (fin.y - offsetY) + 14;
 
                 const newTick = self.coordinatesToTick(clickX, clickY);
 
-                // ⬇️ Deteksi track dari posisi Y akhir (bukan dari comment.midiTrackId)
+                // ⬇️ Detect the track from the final Y position (not comment.midiTrackId)
                 const newMidiTrackId = self.coordinatesToTrack(clickY);
 
                 if (typeof self.commentCallbacks.onMoveRequest === 'function') {
@@ -1823,7 +1823,7 @@ class MusicXMLSVGRenderer {
         icon.addEventListener('mousedown', onDragStart);
         icon.addEventListener('touchstart', onDragStart, { passive: false });
 
-        // ---- Click untuk edit ----
+        // ---- Click to edit ----
         icon.addEventListener('click', (e) => {
             e.stopPropagation();
             if (window.__commentJustDragged) return;
@@ -1861,10 +1861,10 @@ class MusicXMLSVGRenderer {
 
             const tick = self.coordinatesToTick(v.x, v.y);
 
-            // ⬇️ Tentukan track dari posisi Y klik
+            // ⬇️ Determine the track from the clicked Y position
             let targetTrackId = self.coordinatesToTrack(v.y);
 
-            // Fallback: kalau tidak ada marker di dekat klik, ambil track pertama dari filter
+            // Fallback: if there is no marker near the click, use the first track in the filter
             if (targetTrackId === null) {
                 if (self.commentTrackFilter instanceof Set && self.commentTrackFilter.size > 0) {
                     targetTrackId = [...self.commentTrackFilter][0];
@@ -1879,7 +1879,7 @@ class MusicXMLSVGRenderer {
                 try {
                     self.commentCallbacks.onCreateRequest(
                         tick,
-                        targetTrackId,        // ⬅️ sekarang angka tunggal atau null
+                        targetTrackId,        // ⬅️ now a single number or null
                         e.clientX,
                         e.clientY
                     );
@@ -1909,7 +1909,7 @@ class MusicXMLSVGRenderer {
             const editable = this.commentMode && this.canEditComment(c);
             icon.style.cursor = editable ? 'pointer' : 'default';
 
-            // Tandai milik sendiri
+            // Mark as owned by the current user
             if (this.isMyComment(c)) icon.classList.add('is-mine');
             else icon.classList.remove('is-mine');
         });
@@ -2090,39 +2090,39 @@ class MusicXMLSVGRenderer {
         const { minDiatonic, maxDiatonic } = stat;
         const current = originalClef || "G";
 
-        // Rentang nyaman tiap clef (5 garis staff).
+        // Comfortable range for each clef (5 staff lines).
         const staffRange = {
             G: { min:  0, max: 12 }, // C4 .. A5 (allow 1 ledger line each side)
             C: { min: -6, max:  6 }, // D3 .. B4
             F: { min: -12, max: 0 }  // C2 .. C4
         };
 
-        // Berapa banyak "overflow" di luar staff clef sekarang.
+        // Amount of "overflow" beyond the current clef's staff range.
         const range = staffRange[current] || staffRange.G;
         const overflowBelow = Math.max(0, range.min - minDiatonic);
         const overflowAbove = Math.max(0, maxDiatonic - range.max);
 
-        // Ambang minimal: butuh overflow setara ~4 langkah diatonic (≈ 1 oktaf)
-        // sebelum kita menganggap clef asli sudah tidak layak.
+        // Minimum threshold: overflow must be about 4 diatonic steps (≈ 1 octave)
+        // before the original clef is considered unsuitable.
         const MIN_OVERFLOW = 4;
 
-        // Kalau masih muat di clef asli, jangan ubah sama sekali.
+        // If the notes still fit in the original clef, do not change it.
         if (overflowBelow < MIN_OVERFLOW && overflowAbove < MIN_OVERFLOW) {
             return current;
         }
 
-        // Kalau lebih banyak overflow ke bawah → pilih clef yang lebih rendah.
+        // If there is more overflow below → choose a lower clef.
         if (overflowBelow > overflowAbove) {
             if (current === "G") return "F"; // treble → bass
             if (current === "C") return "F"; // alto   → bass
-            return current;                   // bass sudah paling rendah, biarkan
+            return current;                  // Bass is already the lowest; leave it unchanged.
         }
 
-        // Kalau lebih banyak overflow ke atas → pilih clef yang lebih tinggi.
+        // If there is more overflow above → choose a higher clef.
         if (overflowAbove > overflowBelow) {
             if (current === "F") return "G"; // bass → treble
             if (current === "C") return "G"; // alto → treble
-            return current;                   // treble sudah paling tinggi, biarkan
+            return current;                  // Treble is already the highest; leave it unchanged.
         }
 
         return current;
@@ -2167,7 +2167,7 @@ class MusicXMLSVGRenderer {
             this.svg.appendChild(line);
         }
 
-        // === BARU: simpan batas kiri/kanan sistem untuk tie antar-sistem ===
+        // === NEW: store the system's left/right boundaries for cross-system ties ===
         this.currentSystemLeftX  = x;
         this.currentSystemRightX = x + width;
     }
@@ -2417,13 +2417,13 @@ class MusicXMLSVGRenderer {
         const scale = this.zoom || 1.0;
         const count = Math.abs(fifths);
 
-        // Posisi standar key signature per clef (diatonic index)
-        const trebleSharps = [10, 7, 11, 8, 5, 9, 6];      // F5 C5 G5 D5 A4 E5 B4
-        const trebleFlats  = [6, 9, 5, 8, 4, 7, 3];        // B4 E5 A4 D5 G4 C5 F4
-        const bassSharps   = [-4, -7, -3, -6, -9, -5, -8]; // F3 C3 G3 D3 A2 E3 B2
+        // Standard key signature positions for each clef (diatonic index)
+        const trebleSharps = [10, 7, 11, 8, 5, 9, 6];        // F5 C5 G5 D5 A4 E5 B4
+        const trebleFlats  = [6, 9, 5, 8, 4, 7, 3];          // B4 E5 A4 D5 G4 C5 F4
+        const bassSharps   = [-4, -7, -3, -6, -9, -5, -8];   // F3 C3 G3 D3 A2 E3 B2
         const bassFlats    = [-8, -5, -9, -6, -10, -7, -11]; // B2 E3 A2 D3 G2 C3 F2
-        const altoSharps   = [3, 0, 4, 1, -2, 2, -1];      // F4 C4 G4 D4 A3 E4 B3
-        const altoFlats    = [-1, 2, -2, 1, -3, 0, -4];    // B3 E4 A3 D4 G3 C4 F3
+        const altoSharps   = [3, 0, 4, 1, -2, 2, -1];        // F4 C4 G4 D4 A3 E4 B3
+        const altoFlats    = [-1, 2, -2, 1, -3, 0, -4];      // B3 E4 A3 D4 G3 C4 F3
 
         let positions;
         if (clefType === "F") {
@@ -2573,7 +2573,7 @@ class MusicXMLSVGRenderer {
             return { ...note, diatonic, y: noteY };
         });
 
-        // Urutkan notes berdasarkan diatonic index (dari rendah ke tinggi)
+        // Sort notes by diatonic index (from lowest to highest)
         calculatedNotes.sort((a, b) => a.diatonic - b.diatonic);
 
         const lowestNote = calculatedNotes[0];
@@ -2581,7 +2581,7 @@ class MusicXMLSVGRenderer {
 
         const avgDiatonic = calculatedNotes.reduce((sum, n) => sum + n.diatonic, 0) / calculatedNotes.length;
 
-        // Garis tengah staff per clef (aturan notasi standar):
+        // Middle staff line for each clef (standard notation rule):
         //   Treble (G) → B4 → diatonic 6
         //   Alto   (C) → C4 → diatonic 0
         //   Bass   (F) → D3 → diatonic -5
@@ -2592,7 +2592,7 @@ class MusicXMLSVGRenderer {
             ? this.stemDirectionThreshold
             : defaultThreshold;
 
-        // Untuk chord, arah stem ditentukan berdasarkan rata-rata posisi not dalam chord
+        // For chords, stem direction is determined by the average note position in the chord
         const stemDown = avgDiatonic >= threshold;
 
         // Create a group for the entire note/chord column
@@ -2608,14 +2608,14 @@ class MusicXMLSVGRenderer {
         const originalSvg = this.svg;
         this.svg = noteGroup;
 
-        // FIX: Langkah 1 - Gambar semua garis bantu (ledger lines) terlebih dahulu.
-        // Dengan menggambar garis bantu sebelum kepala not, kita memastikan
-        // kepala not (termasuk highlight-nya) akan selalu berada di lapisan atas.
+        // FIX: Step 1 - Draw all ledger lines first.
+        // Drawing ledger lines before noteheads ensures that the noteheads
+        // (including their highlights) always appear on top.
         calculatedNotes.forEach(note => {
             this.drawLedgerLines(x, y, note.diatonic, clefType);
         });
 
-        // Langkah 2 - Gambar semua elemen not lainnya (kepala not, lirik, dll.)
+        // Step 2 - Draw all other note elements (noteheads, lyrics, etc.)
         calculatedNotes.forEach(note => {
             const color = this.colorCoded ? (this.pitchColors[note.step] || this.engraverColor) : this.engraverColor;
             const isHollow = note.type === "whole" || note.type === "half";
@@ -2678,13 +2678,13 @@ class MusicXMLSVGRenderer {
                 // System boundary check (x <= prev.x or Y distance > 50*scale)
                 const isCrossSystem = (x <= prev.x) || (Math.abs(prev.y - note.y) > 50 * scale);
 
-                // Tinggi lengkungan tie: minimum 8px, maksimum 22px, proporsional dengan jarak
+                // Tie curve height: minimum 8px, maximum 22px, proportional to the distance
                 const span = Math.abs(x - prev.x);
                 const curveHeight = Math.min(22, Math.max(8, span * 0.35)) * scale;
                 const thickness = 3.3 * scale;
 
                 // ==============================================================
-                // Rentang tick untuk highlight tie (dari note awal ke note akhir)
+                // Tick range for highlighting the tie (from the starting note to the ending note)
                 // ==============================================================
                 const noteStartTick = this._cumulativeTick + note.onsetDiv;
                 const noteEndTick   = noteStartTick + note.duration;
@@ -2693,7 +2693,7 @@ class MusicXMLSVGRenderer {
 
                 if (isCrossSystem) {
                     // ==============================================================
-                    // Segmen 1: berakhir TEPAT di garis birama kanan sistem lama
+                    // Segment 1: ends EXACTLY at the right barline of the previous system
                     // ==============================================================
                     const systemRightX = this.currentSystemRightX ?? (prev.x + 22 * scale);
                     const endX1 = systemRightX;
@@ -2710,12 +2710,12 @@ class MusicXMLSVGRenderer {
                     path1.setAttribute("data-start-tick", tieStartTick);
                     path1.setAttribute("data-end-tick",   tieEndTick);
 
-                    // ==== PERBAIKAN: append ke system group MILIK NOTE AWAL ====
+                    // ==== FIX: append to the system group OWNED BY THE STARTING NOTE ====
                     const targetSystem1 = prev.systemGroup || this.svg;
                     targetSystem1.appendChild(path1);
 
                     // ==============================================================
-                    // Segmen 2: dimulai TEPAT di garis birama kiri sistem baru
+                    // Segment 2: starts EXACTLY at the left barline of the new system
                     // ==============================================================
                     const systemLeftX = this.currentSystemLeftX ?? (x - 40 * scale);
                     const startX2 = systemLeftX;
@@ -2732,10 +2732,10 @@ class MusicXMLSVGRenderer {
                     path2.setAttribute("data-start-tick", tieStartTick);
                     path2.setAttribute("data-end-tick",   tieEndTick);
 
-                    // Path2 tetap di sistem sekarang
+                    // Keep Path2 in the current system
                     this.svg.appendChild(path2);
                 } else {
-                    // Tie normal: lengkungan proporsional dengan jarak antar-note
+                    // Normal tie: curve is proportional to the distance between notes
                     const cx = (prev.x + x) / 2;
                     const cy = ((sy1 + sy2) / 2) + (stemDown ? -curveHeight : curveHeight);
 
@@ -2759,15 +2759,15 @@ class MusicXMLSVGRenderer {
                     y: note.y,
                     startTick: startTick,
                     endTick:   startTick + note.duration,
-                    // Simpan referensi ke system group tempat note awal berada.
-                    // originalSvg = measureGroup; measureGroup berada di dalam system group.
+                    // Store a reference to the system group containing the starting note.
+                    // originalSvg = measureGroup; measureGroup is inside the system group.
                     systemGroup: originalSvg.closest('g[data-system-number]') || null
                 };
             }
         });
 
         // Stems & Flags
-        // Stems & Flags untuk Chord / Single Note (Hanya 1 stem per kolom chord)
+        // Stems and flags for chords or single notes (only one stem per chord column)
         const firstNoteType = calculatedNotes[0].type;
         let flagElement = null;
         let stemX = x;
@@ -2777,10 +2777,10 @@ class MusicXMLSVGRenderer {
 
         if (firstNoteType !== "whole") {
             const stemLength = 28 * scale;
-            // Batang stem digambar di sebelah kiri jika stemDown (ke bawah), atau di sebelah kanan jika stemUp (ke atas)
+            // Draw the stem on the left when stemDown, or on the right when stemUp.
             stemX = stemDown ? x - 6.0 * scale : x + 6.0 * scale;
             
-            // Stem mulai dari ujung note terjauh (paling atas jika stem naik, paling bawah jika stem turun)
+            // Start the stem at the farthest notehead (topmost for an up-stem, bottommost for a down-stem).
             const stemStartY = stemDown ? highestNote.y : lowestNote.y;
             stemEndY = stemDown ? lowestNote.y + stemLength : highestNote.y - stemLength;
 
@@ -2804,13 +2804,13 @@ class MusicXMLSVGRenderer {
 
         const beatDurationDivs = Math.max(1, (notes[0].divisions || 4) * (4 / (notes[0].beatType || 4)));
 
-        // Di bagian return, pastikan type half note dikenali
+        // Ensure half notes are recognized in the return value.
         return {
             x: x,
             stemX: stemX,
             stemEndY: stemEndY,
             stemDown: stemDown,
-            type: firstNote.type, // Gunakan type dari note pertama
+            type: firstNote.type, // Use the type of the first note
             isBeamable: isBeamable,
             beatIndex: Math.floor(lowestNote.onsetDiv / beatDurationDivs),
             beatDurationDivs: beatDurationDivs,
@@ -2836,7 +2836,7 @@ class MusicXMLSVGRenderer {
             }
 
             // ============================================================
-            // PERBAIKAN: Half note tidak boleh di-beam
+            // FIX: Half notes must not be beamed.
             // ============================================================
             if (stems[i].type === 'half') {
                 i++;
@@ -2847,13 +2847,13 @@ class MusicXMLSVGRenderer {
             let j = i + 1;
             while (j < stems.length && stems[j].isBeamable) {
                 // ============================================================
-                // PERBAIKAN: Half note tidak boleh di-beam dengan note lain
+                // FIX: Half notes must not be beamed with other notes.
                 // ============================================================
                 if (stems[j].type === 'half') {
                     break;
                 }
                 
-                // Cek beatIndex dan stem direction
+                // Check beatIndex and stem direction.
                 if (stems[j].beatIndex !== stems[i].beatIndex) {
                     break;
                 }
@@ -2897,14 +2897,14 @@ class MusicXMLSVGRenderer {
         const first = group[0];
         const last = group[group.length - 1];
 
-        // Hapus flag pada semua note yang di-beam
+        // Remove flags from all beamed notes.
         group.forEach(s => {
             if (s.flagElement && s.flagElement.parentNode) {
                 s.flagElement.parentNode.removeChild(s.flagElement);
             }
         });
 
-        // Selaraskan endpoint stem ke vektor beam
+        // Align stem endpoints with the beam vector.
         let x1 = first.stemX;
         let y1 = first.stemEndY;
         let x2 = last.stemX;
@@ -2923,7 +2923,7 @@ class MusicXMLSVGRenderer {
             });
         }
 
-        // Jumlah beam per tipe note
+        // Number of beams for each note type.
         const getBeamCount = (type) => {
             switch (type) {
                 case '32nd': return 3;
@@ -2965,23 +2965,22 @@ class MusicXMLSVGRenderer {
         // ============================================================
         // SECONDARY / TERTIARY BEAMS — per contiguous run
         //
-        // Untuk setiap level L (2 atau 3), cari note-note dengan
-        // getBeamCount >= L, lalu kelompokkan berdasarkan posisi
-        // yang berurutan (contiguous). Setiap run digambar sebagai
-        // segmen beam terpisah.
+        // For each level L (2 or 3), find notes with getBeamCount >= L,
+        // then group them by consecutive position. Each run is drawn as
+        // a separate beam segment.
         //
-        // Contoh [1/2, 1/4, 1/2]:
-        //   Level 2 → runs = [ [note tengah] ]  → stub di tengah
+        // Example [1/2, 1/4, 1/2]:
+        //   Level 2 → runs = [ [middle note] ]  → stub in the middle
         //
-        // Contoh [1/4, 1/2, 1/4]:
-        //   Level 2 → runs = [ [kiri], [kanan] ] → dua stub terpisah
+        // Example [1/4, 1/2, 1/4]:
+        //   Level 2 → runs = [ [left], [right] ] → two separate stubs
         //
-        // Contoh [32nd, 16th, 32nd]:
-        //   Level 2 → runs = [ [ketiga note] ]           → 1 garis penuh
-        //   Level 3 → runs = [ [kiri], [kanan] ]         → 2 stub terpisah
+        // Example [32nd, 16th, 32nd]:
+        //   Level 2 → runs = [ [all three notes] ]      → 1 full beam
+        //   Level 3 → runs = [ [left], [right] ]        → 2 separate stubs
         // ============================================================
         const drawLevelBeams = (level) => {
-            // Cari runs kontigu
+            // Find contiguous runs.
             const runs = [];
             let currentRun = null;
 
@@ -3004,7 +3003,7 @@ class MusicXMLSVGRenderer {
 
             if (runs.length === 0) return;
 
-            // Offset vertikal dari primary beam
+            // Vertical offset from the primary beam.
             //   level 2 → ±5 * scale
             //   level 3 → ±10 * scale
             const levelOffsetAbs = 5 * (level - 1);
@@ -3021,30 +3020,30 @@ class MusicXMLSVGRenderer {
 
                 if (run.notes.length === 1) {
                     // ------------------------------------------------
-                    // Run berisi 1 note → gambar stub (secondary flag)
-                    // Perpanjang ke arah interior grup agar tidak
-                    // menimpa note di sebelahnya.
+                    // A run with one note → draw a stub (secondary flag).
+                    // Extend it toward the inside of the group so it does not
+                    // overlap the neighboring note.
                     // ------------------------------------------------
                     const stubLen = 9 * scale;
                     const isLeftmost  = (run.startIdx === 0);
                     const isRightmost = (run.endIdx === group.length - 1);
 
                     if (isLeftmost && !isRightmost) {
-                        // Note di ujung kiri → memanjang ke kanan
+                        // Leftmost note → extend to the right.
                         bx1 = firstRunNote.stemX - 0.5 * scale;
                         bx2 = firstRunNote.stemX + stubLen;
                     } else if (isRightmost && !isLeftmost) {
-                        // Note di ujung kanan → memanjang ke kiri
+                        // Rightmost note → extend to the left.
                         bx1 = firstRunNote.stemX - stubLen;
                         bx2 = firstRunNote.stemX + 0.5 * scale;
                     } else {
-                        // Note di tengah → simetris
+                        // Middle note → center the stub symmetrically.
                         bx1 = firstRunNote.stemX - stubLen / 2;
                         bx2 = firstRunNote.stemX + stubLen / 2;
                     }
                 } else {
                     // ------------------------------------------------
-                    // Run berisi banyak note → garis beam biasa
+                    // A run with multiple notes → draw a regular beam line.
                     // ------------------------------------------------
                     if (bx1 < bx2) {
                         bx1 -= beamOffset;
@@ -3055,18 +3054,18 @@ class MusicXMLSVGRenderer {
                     }
                 }
 
-                // Koreksi slope: kalau stub digeser dari posisi stem aslinya,
-                // hitung ulang y agar tetap mengikuti vektor beam.
+                // Correct the slope: if the stub is shifted from its original stem position,
+                // recalculate y so it continues to follow the beam vector.
                 if (run.notes.length === 1 && dx > 0) {
                     const baseX = firstRunNote.stemX;
                     const baseY = firstRunNote.stemEndY;
 
-                    // y pada bx1
+                    // y at bx1
                     const ratio1 = (bx1 - x1) / dx;
                     const alignedY1 = y1 + ratio1 * dy;
                     by1 = alignedY1 + offset;
 
-                    // y pada bx2
+                    // y at bx2
                     const ratio2 = (bx2 - x1) / dx;
                     const alignedY2 = y1 + ratio2 * dy;
                     by2 = alignedY2 + offset;
@@ -3161,7 +3160,7 @@ class MusicXMLSVGRenderer {
             lineMin = -10;
             lineMax = -2;
         } else if (clefType === "C") {
-            // Alto: F3 (-4) .. G4 (4)   ← 5 garis paranada alto
+            // Alto: F3 (-4) .. G4 (4)   ← 5 lines of the alto staff
             lineMin = -4;
             lineMax = 4;
         } else {
@@ -3318,10 +3317,11 @@ class MusicXMLSVGRenderer {
                 break;
 
             case 'quarter':
+                const qScale = 0.92;
                 const qPath = "M349 372c-14-12-44-43-65-102-21-58 25-95 50-114q12-7-1-21L219 9c-13-17-30-7-20 7 120 171-35 197-35 197s17 44 97 115c-84-22-139 40-97 104 41 64 120 78 127 80s18-4 7-11c-26-17-79-61-54-93 34-42 84-23 97-17 22 11 31-1 8-19";
                 const pQ = document.createElementNS("http://www.w3.org/2000/svg", "path");
                 pQ.setAttribute("d", qPath);
-                pQ.setAttribute("transform", `translate(${x - 8 * scale}, ${y + 5 * scale}) scale(${0.06 * scale})`);
+                pQ.setAttribute("transform", `translate(${x - 8 * scale}, ${y + 5 * scale}) scale(${0.06 * scale * qScale})`);
                 pQ.setAttribute("fill", color);
                 pQ.classList.add("rest-symbol");
                 this.svg.appendChild(pQ);
@@ -3333,21 +3333,21 @@ class MusicXMLSVGRenderer {
             case 'eighth':
             case '16th':
             case '32nd': {
-                // Pusatkan rest pada posisi x
+                // Center the rest at position x.
                 const xPos = x; 
                 const restGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
                 restGroup.classList.add("rest-symbol");
 
                 const hookPath = "M 1.098 0 C 0.578 0.098 0.18 0.457 0 0.953 C -0.039 1.113 -0.039 1.152 -0.039 1.371 C -0.039 1.672 -0.02 1.832 0.121 2.07 C 0.32 2.469 0.738 2.789 1.215 2.906 C 1.715 3.047 3 3.153 4 2.153 L 4.941 0.598 C 4.844 0.477 4.645 0.438 4.523 0.535 C 4.484 0.574 4.422 0.656 4.383 0.715 C 4.203 1.016 3.746 1.551 3.508 1.75 C 3.289 1.93 3.168 1.949 2.969 1.871 C 2.789 1.773 2.73 1.672 2.609 1.133 C 2.492 0.598 2.352 0.355 2.051 0.156 C 1.773 -0.023 1.414 -0.082 1.098 0 z";
 
-                // ==== Parameter ukuran flag (Diperbesar agar sesuai standar) ====
-                const hookScale = 2.2 * scale; // Dinaikkan dari 1.8 agar lebih proporsional
+                // ==== Flag size parameters (enlarged to match the standard) ====
+                const hookScale = 2.2 * scale; // Increased from 1.8 for better proportions.
                 const HOOK_NATIVE_W = 4.941;
                 const HOOK_NATIVE_H = 2.906;
                 const hookW = HOOK_NATIVE_W * hookScale;
                 const hookH = HOOK_NATIVE_H * hookScale;
                 
-                // Jarak antar flag disesuaikan sedikit lebih rapat
+                // Slightly reduce the spacing between flags.
                 let flagGap = hookH * 1.5; 
                 // =================================
 
@@ -3359,11 +3359,11 @@ class MusicXMLSVGRenderer {
                 if (type === '32nd') {
                     const slope = (stemBotX - stemTopX) / (stemBotY - stemTopY);
                     stemTopY = y + 3 * scale; 
-                    // Pertahankan gradien
+                    // Preserve the slope.
                     stemBotX = stemTopX + (stemBotY - stemTopY) * slope;
                 }
 
-                // ==== Hitung gradient stem ====
+                // ==== Calculate the stem slope ====
                 const stemDx = stemBotX - stemTopX;    
                 const stemDy = stemBotY - stemTopY;    
                 const stemSlope = stemDy !== 0 ? (stemDx / stemDy) : 0;   
@@ -3375,13 +3375,13 @@ class MusicXMLSVGRenderer {
                 stem.setAttribute("x2", stemBotX);
                 stem.setAttribute("y2", stemBotY);
                 stem.setAttribute("stroke", color);
-                stem.setAttribute("stroke-width", `${1.2 * scale}`); // Sedikit lebih tebal
+                stem.setAttribute("stroke-width", `${1.2 * scale}`); // Slightly thicker.
                 stem.classList.add("rest-line");
                 restGroup.appendChild(stem);
 
-                // Flag 1 — tepi kanan menempel ke puncak stem
+                // Flag 1 — the right edge meets the top of the stem.
                 const flag1X = stemTopX - hookW;
-                const flag1Y = stemTopY - hookH * 0.2; // Sedikit disesuaikan agar pangkal hook pas di ujung stem
+                const flag1Y = stemTopY - hookH * 0.2; // Slightly adjusted so the hook base meets the stem endpoint.
                 const pH1 = document.createElementNS("http://www.w3.org/2000/svg", "path");
                 pH1.setAttribute("d", hookPath);
                 pH1.setAttribute("transform", `translate(${flag1X}, ${flag1Y}) scale(${hookScale})`);
@@ -3389,7 +3389,7 @@ class MusicXMLSVGRenderer {
                 pH1.classList.add("rest-symbol");
                 restGroup.appendChild(pH1);
 
-                // Flag 2 (untuk 16th dan 32nd)
+                // Flag 2 (for 16th and 32nd notes)
                 if (type === '16th' || type === '32nd') {
                     const flag2X = flag1X + stemSlope * flagGap;
                     const flag2Y = flag1Y + flagGap;
@@ -3401,7 +3401,7 @@ class MusicXMLSVGRenderer {
                     restGroup.appendChild(pH2);
                 }
 
-                // Flag 3 (Khusus untuk 32nd - SEBELUMNYA HILANG)
+                // Flag 3 (for 32nd notes only)
                 if (type === '32nd') {
                     const flag3X = flag1X + stemSlope * (flagGap * 2);
                     const flag3Y = flag1Y + (flagGap * 2);
@@ -3415,9 +3415,9 @@ class MusicXMLSVGRenderer {
 
                 this.svg.appendChild(restGroup);
                 
-                // Update restInfo agar sesuai dengan posisi baru
+                // Update restInfo to match the new position.
                 restInfo.xPos = stemTopX;
-                restInfo.y = y + 2 * this.lineSpacing; // Tetap di tengah staff
+                restInfo.y = y + 2 * this.lineSpacing; // Keep it centered on the staff.
                 restInfo.width = 10 * scale; 
                 break;
             }
@@ -3564,7 +3564,7 @@ class MusicXMLSVGRenderer {
         // Ensure playhead is visible if it was hidden
         playheadLine.style.display = '';
 
-        // Cari measure aktif
+        // Find the active measure
         const currentMeasureNum = pos.measure;
         const activeMeasure = svg.querySelector(`g[data-measure-number="${currentMeasureNum}"]`);
 
@@ -3600,11 +3600,11 @@ class MusicXMLSVGRenderer {
                 const vbWidth = parseFloat(viewBox[2]);
                 // const contentWidth = scrollContainer.scrollWidth; // lebar konten penuh
                 const contentWidth = this._svgRoot.parentNode.offsetWidth;
-                const scaleX = (contentWidth) / vbWidth; // Gunakan skala horizontal untuk menghitung skala vertikal
+                const scaleX = (contentWidth) / vbWidth; // Use the horizontal scale to calculate the vertical scale.
 
                 let offsetY = systemY;
                 if(activeSystem.dataset.systemNumber == '1') {
-                    offsetY = 0; // Jika sistem pertama, setel offset ke 0
+                    offsetY = 0; // For the first system, set the offset to 0.
                 }
                 const newScrollTop = (systemY * scaleX) - 20;
 
@@ -3673,7 +3673,7 @@ class MusicXMLSVGRenderer {
                 }
             });
 
-            // === BARU: Highlight tie curves berdasarkan rentang tick-nya sendiri ===
+            // === NEW: Highlight tie curves based on their own tick range ===
             const tieCurves = parentElement.querySelectorAll('path.tie-curve[data-start-tick]');
             tieCurves.forEach(el => {
                 const minTick = parseFloat(el.getAttribute('data-start-tick'));
