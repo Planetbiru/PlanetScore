@@ -1737,9 +1737,12 @@ class MusicXMLPDFRenderer {
             stemStartY = stemDown ? highestNote.y + 0.5 * gs : lowestNote.y - 0.5 * gs;
             stemEndY = stemDown ? lowestNote.y + stemLength : highestNote.y - stemLength;
 
-            this.doc.setDrawColor(...this.engraverColor);
-            this.doc.setLineWidth(1.4 * gs);
-            this.doc.line(stemX, stemStartY, stemX, stemEndY);
+            // Untuk not beamable, stem digambar nanti setelah posisi beam diketahui.
+            if (!isBeamable) {
+                this.doc.setDrawColor(...this.engraverColor);
+                this.doc.setLineWidth(1.4 * gs);
+                this.doc.line(stemX, stemStartY, stemX, stemEndY);
+            }
         }
 
         const beatDurationDivs = Math.max(1, (notes[0].divisions || 4) * (4 / (notes[0].beatType || 4)));
@@ -1759,6 +1762,29 @@ class MusicXMLPDFRenderer {
     }
 
     /**
+     * Draws the vertical stem line for a single note or chord column.
+     *
+     * This method is used after beam positioning has been finalized (or for
+     * non-beamed notes that were deferred during initial column rendering).
+     * It intentionally skips whole notes, which have no stem.
+     *
+     * @param {Object} s - Stem metadata produced by `drawNoteColumn()`.
+     * @param {string} s.type - Note type (e.g. `'quarter'`, `'eighth'`, `'whole'`).
+     * @param {number} s.stemX - X-coordinate of the stem line.
+     * @param {number} s.stemStartY - Y-coordinate where the stem begins (near the notehead).
+     * @param {number} s.stemEndY - Y-coordinate where the stem ends (near the beam or flag).
+     * @returns {void}
+     */
+    drawStemForStem(s) {
+        if (!s || s.type === "whole") return;
+
+        const gs = this.GLOBAL_SCALE ?? 1.0;
+        this.doc.setDrawColor(...this.engraverColor);
+        this.doc.setLineWidth(1.4 * gs);
+        this.doc.line(s.stemX, s.stemStartY, s.stemX, s.stemEndY);
+    }
+
+    /**
      * Groups stems into beamed note clusters and renders beams for each group.
      *
      * @param {Array<Object>} stems Stem metadata objects produced by note columns.
@@ -1768,6 +1794,7 @@ class MusicXMLPDFRenderer {
         if (!stems || stems.length === 0) return;
 
         if (stems.length === 1) {
+            this.drawStemForStem(stems[0]);
             this.drawFlagForStem(stems[0]);
             return;
         }
@@ -1798,6 +1825,7 @@ class MusicXMLPDFRenderer {
 
         stems.forEach(s => {
             if (!s._beamed) {
+                this.drawStemForStem(s);
                 this.drawFlagForStem(s);
             }
         });
