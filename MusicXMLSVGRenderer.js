@@ -2804,11 +2804,16 @@ class MusicXMLSVGRenderer {
 
         const beatDurationDivs = Math.max(1, (notes[0].divisions || 4) * (4 / (notes[0].beatType || 4)));
 
+        this.svg = originalSvg; // Restore original target
+        this.svg.appendChild(noteGroup); // Add the complete group to the measure
+
         // Ensure half notes are recognized in the return value.
         return {
             x: x,
             stemX: stemX,
             stemEndY: stemEndY,
+            criticalNoteY: stemDown ? lowestNote.y : highestNote.y, // <-- TAMBAHKAN INI
+            stemLength: 28 * scale,                                 // <-- TAMBAHKAN INI
             stemDown: stemDown,
             type: firstNote.type, // Use the type of the first note
             isBeamable: isBeamable,
@@ -2906,22 +2911,61 @@ class MusicXMLSVGRenderer {
 
         // Align stem endpoints with the beam vector.
         let x1 = first.stemX;
-        let y1 = first.stemEndY;
         let x2 = last.stemX;
-        let y2 = last.stemEndY;
         const dx = x2 - x1;
-        const dy = y2 - y1;
 
-        if (dx > 0) {
+        // 1. Hitung kemiringan alami (natural slope)
+        let slope = 0;
+        if (dx !== 0) {
+            const naturalDy = last.stemEndY - first.stemEndY;
+            slope = naturalDy / dx;
+            
+            // 2. Batasi kemiringan agar beam tidak terlalu curam
+            const maxSlope = 0.25; 
+            if (Math.abs(slope) > maxSlope) {
+                slope = Math.sign(slope) * maxSlope;
+            }
+        }
+
+        // 3. Cari titik potong Y (b) yang menjamin panjang stem minimal
+        const minStemLength = 28 * scale;
+        let b = null;
+
+        if (first.stemDown) {
+            // Beam di bawah not. Syarat: beamY >= criticalNoteY + minStemLength
+            b = -Infinity;
             group.forEach(s => {
-                const ratio = (s.stemX - x1) / dx;
-                const alignedY = y1 + ratio * dy;
-                s.stemEndY = alignedY;
-                if (s.stemLine) {
-                    s.stemLine.setAttribute("y2", alignedY);
-                }
+                const critY = s.criticalNoteY !== undefined ? s.criticalNoteY : s.stemEndY - minStemLength;
+                const requiredB = critY + minStemLength - slope * (s.stemX - x1);
+                if (requiredB > b) b = requiredB;
+            });
+        } else {
+            // Beam di atas not. Syarat: beamY <= criticalNoteY - minStemLength
+            b = Infinity;
+            group.forEach(s => {
+                const critY = s.criticalNoteY !== undefined ? s.criticalNoteY : s.stemEndY + minStemLength;
+                const requiredB = critY - minStemLength - slope * (s.stemX - x1);
+                if (requiredB < b) b = requiredB;
             });
         }
+
+        // Fallback jika kalkulasi gagal
+        if (b === null || !Number.isFinite(b)) {
+            b = first.stemEndY;
+        }
+
+        // 4. Terapkan posisi beam baru ke seluruh stem
+        let y1 = b;
+        let y2 = b + slope * dx;
+        let dy = y2 - y1;
+
+        group.forEach(s => {
+            const alignedY = b + slope * (s.stemX - x1);
+            s.stemEndY = alignedY;
+            if (s.stemLine) {
+                s.stemLine.setAttribute("y2", alignedY);
+            }
+        });
 
         // Number of beams for each note type.
         const getBeamCount = (type) => {
@@ -2940,23 +2984,30 @@ class MusicXMLSVGRenderer {
 
         const beamOffset = 0.7 * scale;
 
-
         let px1 = x1;
         let px2 = x2;
+        let py1 = y1;
+        let py2 = y2;
+
+        // Terapkan offset secara diagonal mengikuti kemiringan (slope)
         if (px1 < px2) {
             px1 -= beamOffset;
             px2 += beamOffset;
+            py1 -= slope * beamOffset;
+            py2 += slope * beamOffset;
         } else {
             px1 += beamOffset;
             px2 -= beamOffset;
+            py1 += slope * beamOffset;
+            py2 -= slope * beamOffset;
         }
 
         const beam = document.createElementNS("http://www.w3.org/2000/svg", "line");
         beam.classList.add("note-beam");
         beam.setAttribute("x1", px1);
-        beam.setAttribute("y1", y1);
+        beam.setAttribute("y1", py1);
         beam.setAttribute("x2", px2);
-        beam.setAttribute("y2", y2);
+        beam.setAttribute("y2", py2);
         beam.setAttribute("stroke", this.engraverColor);
         beam.setAttribute("stroke-width", `${3.5 * scale}`);
         this.svg.appendChild(beam);
@@ -2964,20 +3015,6 @@ class MusicXMLSVGRenderer {
 
         // ============================================================
         // SECONDARY / TERTIARY BEAMS — per contiguous run
-        //
-        // For each level L (2 or 3), find notes with getBeamCount >= L,
-        // then group them by consecutive position. Each run is drawn as
-        // a separate beam segment.
-        //
-        // Example [1/2, 1/4, 1/2]:
-        //   Level 2 → runs = [ [middle note] ]  → stub in the middle
-        //
-        // Example [1/4, 1/2, 1/4]:
-        //   Level 2 → runs = [ [left], [right] ] → two separate stubs
-        //
-        // Example [32nd, 16th, 32nd]:
-        //   Level 2 → runs = [ [all three notes] ]      → 1 full beam
-        //   Level 3 → runs = [ [left], [right] ]        → 2 separate stubs
         // ============================================================
         const drawLevelBeams = (level) => {
             // Find contiguous runs.
@@ -3003,9 +3040,6 @@ class MusicXMLSVGRenderer {
 
             if (runs.length === 0) return;
 
-            // Vertical offset from the primary beam.
-            //   level 2 → ±5 * scale
-            //   level 3 → ±10 * scale
             const levelOffsetAbs = 5 * (level - 1);
             const offset = (first.stemDown ? -levelOffsetAbs : levelOffsetAbs) * scale;
 
@@ -3019,32 +3053,21 @@ class MusicXMLSVGRenderer {
                 let by2 = lastRunNote.stemEndY + offset;
 
                 if (run.notes.length === 1) {
-                    // ------------------------------------------------
-                    // A run with one note → draw a stub (secondary flag).
-                    // Extend it toward the inside of the group so it does not
-                    // overlap the neighboring note.
-                    // ------------------------------------------------
                     const stubLen = 9 * scale;
                     const isLeftmost  = (run.startIdx === 0);
                     const isRightmost = (run.endIdx === group.length - 1);
 
                     if (isLeftmost && !isRightmost) {
-                        // Leftmost note → extend to the right.
                         bx1 = firstRunNote.stemX - 0.5 * scale;
                         bx2 = firstRunNote.stemX + stubLen;
                     } else if (isRightmost && !isLeftmost) {
-                        // Rightmost note → extend to the left.
                         bx1 = firstRunNote.stemX - stubLen;
                         bx2 = firstRunNote.stemX + 0.5 * scale;
                     } else {
-                        // Middle note → center the stub symmetrically.
                         bx1 = firstRunNote.stemX - stubLen / 2;
                         bx2 = firstRunNote.stemX + stubLen / 2;
                     }
                 } else {
-                    // ------------------------------------------------
-                    // A run with multiple notes → draw a regular beam line.
-                    // ------------------------------------------------
                     if (bx1 < bx2) {
                         bx1 -= beamOffset;
                         bx2 += beamOffset;
@@ -3054,18 +3077,11 @@ class MusicXMLSVGRenderer {
                     }
                 }
 
-                // Correct the slope: if the stub is shifted from its original stem position,
-                // recalculate y so it continues to follow the beam vector.
                 if (run.notes.length === 1 && dx > 0) {
-                    const baseX = firstRunNote.stemX;
-                    const baseY = firstRunNote.stemEndY;
-
-                    // y at bx1
                     const ratio1 = (bx1 - x1) / dx;
                     const alignedY1 = y1 + ratio1 * dy;
                     by1 = alignedY1 + offset;
 
-                    // y at bx2
                     const ratio2 = (bx2 - x1) / dx;
                     const alignedY2 = y1 + ratio2 * dy;
                     by2 = alignedY2 + offset;

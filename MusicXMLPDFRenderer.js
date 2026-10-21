@@ -1752,6 +1752,7 @@ class MusicXMLPDFRenderer {
             stemX: stemX,
             stemStartY: stemStartY,
             stemEndY: stemEndY,
+            criticalNoteY: stemDown ? lowestNote.y : highestNote.y,
             stemDown: stemDown,
             type: firstNoteType,
             isBeamable: isBeamable,
@@ -1857,26 +1858,63 @@ class MusicXMLPDFRenderer {
         const first = group[0];
         const last = group[group.length - 1];
 
-        const beamOffset = 0.7 * gs;   // was 0.7
+        const beamOffset = 0.7 * gs;
 
         let x1 = first.stemX;
-        let y1 = first.stemEndY;
         let x2 = last.stemX;
-        let y2 = last.stemEndY;
-
         const dx = x2 - x1;
-        const dy = y2 - y1;
 
-        if (dx > 0) {
+        // 1. Hitung kemiringan alami (natural slope)
+        let slope = 0;
+        if (dx !== 0) {
+            const naturalDy = last.stemEndY - first.stemEndY;
+            slope = naturalDy / dx;
+            
+            // 2. Batasi kemiringan agar beam tidak terlalu curam
+            const maxSlope = 0.25; 
+            if (Math.abs(slope) > maxSlope) {
+                slope = Math.sign(slope) * maxSlope;
+            }
+        }
+
+        // 3. Cari titik potong Y (b) yang menjamin panjang stem minimal
+        const minStemLength = Math.max(18 * gs, this.lineSpacing * 3);
+        let b = null;
+
+        if (first.stemDown) {
+            // Beam di bawah not. Syarat: beamY >= criticalNoteY + minStemLength
+            b = -Infinity;
             group.forEach(s => {
-                const ratio = (s.stemX - x1) / dx;
-                const alignedY = y1 + ratio * dy;
-                s.stemEndY = alignedY;
-                this.doc.setDrawColor(...this.engraverColor);
-                this.doc.setLineWidth(1.4 * gs);
-                this.doc.line(s.stemX, s.stemStartY, s.stemX, alignedY);
+                const critY = s.criticalNoteY !== undefined ? s.criticalNoteY : (s.stemStartY + minStemLength);
+                const requiredB = critY + minStemLength - slope * (s.stemX - x1);
+                if (requiredB > b) b = requiredB;
+            });
+        } else {
+            // Beam di atas not. Syarat: beamY <= criticalNoteY - minStemLength
+            b = Infinity;
+            group.forEach(s => {
+                const critY = s.criticalNoteY !== undefined ? s.criticalNoteY : (s.stemStartY - minStemLength);
+                const requiredB = critY - minStemLength - slope * (s.stemX - x1);
+                if (requiredB < b) b = requiredB;
             });
         }
+
+        if (b === null || !Number.isFinite(b)) {
+            b = first.stemEndY;
+        }
+
+        let y1 = b;
+        let y2 = b + slope * dx;
+        let dy = y2 - y1;
+
+        // 4. Terapkan posisi beam baru ke seluruh stem dan gambar
+        group.forEach(s => {
+            const alignedY = b + slope * (s.stemX - x1);
+            s.stemEndY = alignedY;
+            this.doc.setDrawColor(...this.engraverColor);
+            this.doc.setLineWidth(1.4 * gs);
+            this.doc.line(s.stemX, s.stemStartY, s.stemX, alignedY);
+        });
 
         const getBeamCount = (type) => {
             switch (type) {
@@ -1895,22 +1933,30 @@ class MusicXMLPDFRenderer {
         {
             let px1 = x1;
             let px2 = x2;
+            let py1 = y1;
+            let py2 = y2;
+            
+            // Terapkan offset secara diagonal mengikuti kemiringan (slope)
             if (px1 < px2) {
                 px1 -= beamOffset;
                 px2 += beamOffset;
+                py1 -= slope * beamOffset;
+                py2 += slope * beamOffset;
             } else {
                 px1 += beamOffset;
                 px2 -= beamOffset;
+                py1 += slope * beamOffset;
+                py2 -= slope * beamOffset;
             }
 
             const thickness = 3.5 * gs;
             const t2 = thickness / 2;
             
             this.doc.setFillColor(...this.engraverColor);
-            this.doc.moveTo(px1, y1 - t2);       
-            this.doc.lineTo(px2, y2 - t2);       
-            this.doc.lineTo(px2, y2 + t2);       
-            this.doc.lineTo(px1, y1 + t2);       
+            this.doc.moveTo(px1, py1 - t2);       
+            this.doc.lineTo(px2, py2 - t2);       
+            this.doc.lineTo(px2, py2 + t2);       
+            this.doc.lineTo(px1, py1 + t2);       
             this.doc.close();
             this.doc.fill();
         }
@@ -1938,7 +1984,7 @@ class MusicXMLPDFRenderer {
 
             if (runs.length === 0) return;
 
-            const levelOffsetAbs = 5 * (level - 1) * gs;   // was 5 * (level - 1)
+            const levelOffsetAbs = 5 * (level - 1) * gs;
             const offset = first.stemDown ? -levelOffsetAbs : levelOffsetAbs;
 
             runs.forEach(run => {
@@ -1946,9 +1992,7 @@ class MusicXMLPDFRenderer {
                 const lastRunNote  = run.notes[run.notes.length - 1];
 
                 let bx1 = firstRunNote.stemX;
-                let by1 = firstRunNote.stemEndY + offset;
                 let bx2 = lastRunNote.stemX;
-                let by2 = lastRunNote.stemEndY + offset;
 
                 if (run.notes.length === 1) {
                     const stubLen = 9 * gs;
@@ -1965,13 +2009,6 @@ class MusicXMLPDFRenderer {
                         bx1 = firstRunNote.stemX - stubLen / 2;
                         bx2 = firstRunNote.stemX + stubLen / 2;
                     }
-
-                    if (dx > 0) {
-                        const ratio1 = (bx1 - x1) / dx;
-                        const ratio2 = (bx2 - x1) / dx;
-                        by1 = y1 + ratio1 * dy + offset;
-                        by2 = y1 + ratio2 * dy + offset;
-                    }
                 } else {
                     if (bx1 < bx2) {
                         bx1 -= beamOffset;
@@ -1982,7 +2019,11 @@ class MusicXMLPDFRenderer {
                     }
                 }
 
-                const thickness = 3.0 * gs;    // was 3.0
+                // Kalkulasi Y secara diagonal agar sejajar sempurna dengan beam utama
+                const by1 = b + (bx1 - x1) * slope + offset;
+                const by2 = b + (bx2 - x1) * slope + offset;
+
+                const thickness = 3.0 * gs;
                 const t2 = thickness / 2;
                 
                 this.doc.setFillColor(...this.engraverColor);

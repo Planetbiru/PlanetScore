@@ -2,286 +2,88 @@
 
 All notable changes to PlanetScore are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.0.3] - 2026-10-21
 
-Feature-and-fix release. Adds the **`MusicXMLToMidi`** converter — the
-missing counterpart to `MidiToMusicXML` — enabling a full
-MIDI → MusicXML → MIDI round-trip, and fixes a **PDF stem/beam overlap**
-regression introduced by the deferred stem drawing in the beam pipeline.
+Feature-and-fix release. Adds the **`MusicXMLToMidi`** converter — the missing counterpart to `MidiToMusicXML` — enabling a full MIDI → MusicXML → MIDI round-trip, and fixes beam/stem regressions in both the SVG and PDF renderers where extreme pitch gaps or deferred stem drawing caused stems to become too short or pierce through the beam.
 
 ### Added
 
-- **`MusicXMLToMidi` converter class.** A new `MusicXMLToMidi` class parses
-  MusicXML 4.0 partwise documents and emits a Standard MIDI File (SMF) byte
-  array. It walks every `<part>` measure-by-measure, accumulates note
-  start/duration in a canonical PPQ grid, handles `<backup>`/`<forward>` for
-  multi-voice measures, resolves ties (merging tied segments into a single
-  note), maps pitch/alter/octave to MIDI note numbers, translates
-  `<midi-instrument>` metadata to channels and programs, and finally emits a
-  format-0 or format-1 MIDI file.
-- **`MusicXMLToMidi`: format 1 with conductor track (default).**
-  `format1: true` is the default. Time and key signatures are hoisted into a
-  dedicated conductor track (track 0) and deduplicated by
-  `(metaType, tick, data)`, so parts that redeclare the same signature do not
-  emit redundant meta events. Each part is emitted as its own track, prefixed
-  with a `Track Name` (0x03) meta event.
-- **`MusicXMLToMidi`: lyric emission as MIDI meta events.**
-  `<lyric>` text on notes *and rests* is emitted as Lyric (0x05) or Text
-  (0x01) meta events, controlled by `lyricMetaType`
-  (`0x05` | `0x01` | `'both'`). `lyricVerse` selects a specific verse from
-  multi-verse `<lyric number="...">` elements. `includeLyrics` defaults to
-  `true` for lossless round-trips.
-- **`MusicXMLToMidi`: round-trip compatibility with `MidiToMusicXML`.**
-  - Numeric dynamics inside `<note><dynamics>NUMBER</dynamics>` — the format
-    `MidiToMusicXML` emits — are read directly and translated to velocity,
-    inverting `MidiToMusicXML`'s `dynamics = round(vel/127 * 100)` formula.
-    The standard `<notations><dynamics><mf/></dynamics>` form is still
-    supported.
-  - Lyrics are emitted from rests as well as notes, mirroring the way
-    `MidiToMusicXML` attaches lyrics to rests.
-- **`MusicXMLToMidi`: percussion & instrument mapping.** Values from
-  `<midi-unpitched>` are mapped per `<instrument id>`, so a drum part can
-  address multiple kit pieces from the same part. `<unpitched>` notes
-  without an instrument mapping fall back to `display-step` /
-  `display-octave`, with Acoustic Snare (38) as the final default.
-  `<midi-channel>` value 10 (1-based) is treated as the GM drum channel and
-  auto-assigned when the part name matches `/drum|percussion/i`.
-- **`MusicXMLToMidi`: additive time signatures.** `<beats>` values such as
-  `3+2+2` are summed into a single numerator before the `0x58` meta event is
-  written.
-- **`MusicXMLToMidi`: multi-voice / multi-staff chord handling.**
-  `lastNoteStart` is keyed by `voice_staff`, so chord tones in different
-  voices or staves do not collide. Ties are tracked per
-  `channel_pitch_voice_staff`, so a tie continuation is merged with its
-  starting note even when other voices move underneath it.
-- **`MusicXMLToMidi`: velocity resolution.** Per-note `<velocity>` is
-  honored; `<direction><direction-type><dynamics>` and numeric
-  `<note><dynamics>` feed the default velocity; `<sound dynamics>` is read
-  via `_processSound`. Velocity is clamped to `1–127`.
-- **`MusicXMLToMidi`: convenience getters and browser download.**
-  `getMidiBytes()`, `getParsed()`, `getMidiChannel()` (0-based channel per
-  rendered part, in document order), `getMidiTrackId()` (0-based track
-  index per part, accounting for the conductor track in format 1), and
-  `downloadMidi(filename)` (Blob + `URL.createObjectURL`, browser-only).
-- **`MusicXMLToMidi`: cross-environment XML parser.** Uses the browser
-  `DOMParser` when available and falls back to `@xmldom/xmldom` or
-  `xmldom` under Node.js. `convert()` throws if the root element is not
-  `<score-partwise>`.
+- **`MusicXMLToMidi` converter class.** A new `MusicXMLToMidi` class parses MusicXML 4.0 partwise documents and emits a Standard MIDI File (SMF) byte array. It walks every `<part>` measure-by-measure, accumulates note start/duration in a canonical PPQ grid, handles `<backup>`/`<forward>` for multi-voice measures, resolves ties (merging tied segments into a single note), maps pitch/alter/octave to MIDI note numbers, translates `<midi-instrument>` metadata to channels and programs, and finally emits a format-0 or format-1 MIDI file.
+- **`MusicXMLToMidi`: format 1 with conductor track (default).** `format1: true` is the default. Time and key signatures are hoisted into a dedicated conductor track (track 0) and deduplicated by `(metaType, tick, data)`, so parts that redeclare the same signature do not emit redundant meta events. Each part is emitted as its own track, prefixed with a `Track Name` (0x03) meta event.
+- **`MusicXMLToMidi`: lyric emission as MIDI meta events.** `<lyric>` text on notes *and rests* is emitted as Lyric (0x05) or Text (0x01) meta events, controlled by `lyricMetaType` (`0x05` | `0x01` | `'both'`). `lyricVerse` selects a specific verse from multi-verse `<lyric number="...">` elements. `includeLyrics` defaults to `true` for lossless round-trips.
+- **`MusicXMLToMidi`: round-trip compatibility with `MidiToMusicXML`.** Numeric dynamics inside `<note><dynamics>NUMBER</dynamics>` — the format `MidiToMusicXML` emits — are read directly and translated to velocity, inverting `MidiToMusicXML`'s `dynamics = round(vel/127 * 100)` formula. The standard `<notations><dynamics><mf/></dynamics>` form is still supported. Lyrics are emitted from rests as well as notes, mirroring the way `MidiToMusicXML` attaches lyrics to rests.
+- **`MusicXMLToMidi`: percussion & instrument mapping.** Values from `<midi-unpitched>` are mapped per `<instrument id>`, so a drum part can address multiple kit pieces from the same part. `<unpitched>` notes without an instrument mapping fall back to `display-step` / `display-octave`, with Acoustic Snare (38) as the final default. `<midi-channel>` value 10 (1-based) is treated as the GM drum channel and auto-assigned when the part name matches `/drum|percussion/i`.
+- **`MusicXMLToMidi`: additive time signatures.** `<beats>` values such as `3+2+2` are summed into a single numerator before the `0x58` meta event is written.
+- **`MusicXMLToMidi`: multi-voice / multi-staff chord handling.** `lastNoteStart` is keyed by `voice_staff`, so chord tones in different voices or staves do not collide. Ties are tracked per `channel_pitch_voice_staff`, so a tie continuation is merged with its starting note even when other voices move underneath it.
+- **`MusicXMLToMidi`: velocity resolution.** Per-note `<velocity>` is honored; `<direction><direction-type><dynamics>` and numeric `<note><dynamics>` feed the default velocity; `<sound dynamics>` is read via `_processSound`. Velocity is clamped to `1–127`.
+- **`MusicXMLToMidi`: convenience getters and browser download.** `getMidiBytes()`, `getParsed()`, `getMidiChannel()` (0-based channel per rendered part, in document order), `getMidiTrackId()` (0-based track index per part, accounting for the conductor track in format 1), and `downloadMidi(filename)` (Blob + `URL.createObjectURL`, browser-only).
+- **`MusicXMLToMidi`: cross-environment XML parser.** Uses the browser `DOMParser` when available and falls back to `@xmldom/xmldom` or `xmldom` under Node.js. `convert()` throws if the root element is not `<score-partwise>`.
 
 ### Fixed
 
-- **PDF: Stems cut through beams.** In `MusicXMLPDFRenderer`, every note
-  column drew its stem at full length inside `drawNoteColumn()` *before*
-  `renderBeamGroup()` aligned the stems to the beam slope. When the aligned
-  endpoint moved the stem end upward (down-stems) or downward (up-stems),
-  the original full-length line remained visible, producing a stem that
-  visually pierced the beam. The defect was most obvious on eighth- and
-  sixteenth-note runs that span more than two columns.
-- **PDF: Stems were drawn twice for beamed notes.** After the alignment
-  pass, `renderBeamGroup()` redrew each stem from `stemStartY` to the
-  adjusted `stemEndY`, but never removed the earlier line. The visible
-  result was a double-thickness stem on some columns and a protruding
-  overhang on others.
+- **SVG & PDF: Beam slope and minimum stem length.** In both `MusicXMLSVGRenderer` and `MusicXMLPDFRenderer`, beamed notes with large pitch gaps (e.g., jumping multiple octaves) produced excessively steep beam slopes. This caused some note stems to become extremely short or visually overlap the beam. The beam slope is now capped (max `0.25`), and the vertical position of the beam is dynamically shifted to guarantee a minimum stem length for every note in the beam group.
+- **PDF: Stems cut through beams.** In `MusicXMLPDFRenderer`, every note column drew its stem at full length inside `drawNoteColumn()` *before* `renderBeamGroup()` aligned the stems to the beam slope. When the aligned endpoint moved the stem end upward (down-stems) or downward (up-stems), the original full-length line remained visible, producing a stem that visually pierced the beam. The defect was most obvious on eighth- and sixteenth-note runs that span more than two columns.
+- **PDF: Stems were drawn twice for beamed notes.** After the alignment pass, `renderBeamGroup()` redrew each stem from `stemStartY` to the adjusted `stemEndY`, but never removed the earlier line. The visible result was a double-thickness stem on some columns and a protruding overhang on others.
 
 ### Changed
 
-- **PDF: Beamable stems are deferred.** `drawNoteColumn()` no longer draws
-  a stem for eighth-, sixteenth-, and thirty-second-note columns. The stem
-  metadata is still returned to the caller so `drawBeams()` can decide the
-  final geometry. Quarter and longer notes (which are never beamed) continue
-  to draw their stems immediately.
-- **PDF: New `drawStemForStem(s)` helper.** The renderer now exposes a
-  small public helper — documented with a JSDoc block — that draws a stem
-  from the finalized metadata (`stemX`, `stemStartY`, `stemEndY`). It is
-  used by both the single-note path and the post-processing pass of
-  `drawBeams()`.
-- **PDF: `drawBeams()` owns stem rendering.** The routine now draws stems
-  itself, in three situations:
-  1. A single beamable note that is not part of a group,
-  2. A beamable note that was not absorbed into a group (e.g. an isolated
-     eighth note surrounded by quarter notes),
-  3. Notes inside a beam group, after the beam slope alignment has been
-     applied.
+- **`MusicXMLSVGRenderer`: Beam group calculation.** `renderBeamGroup()` now calculates a constrained slope and a minimum Y-offset (`b`) to ensure all stems maintain a minimum length. The `drawNoteColumn()` method now returns `criticalNoteY` and `stemLength` to assist with this calculation.
+- **`MusicXMLPDFRenderer`: Beam group calculation.** `renderBeamGroup()` applies the same constrained slope and minimum Y-offset logic to prevent stems from becoming too short. The `drawNoteColumn()` method now returns `criticalNoteY` for this purpose.
+- **PDF: Beamable stems are deferred.** `drawNoteColumn()` no longer draws a stem for eighth-, sixteenth-, and thirty-second-note columns. The stem metadata is still returned to the caller so `drawBeams()` can decide the final geometry. Quarter and longer notes (which are never beamed) continue to draw their stems immediately.
+- **PDF: New `drawStemForStem(s)` helper.** The renderer now exposes a small public helper — documented with a JSDoc block — that draws a stem from the finalized metadata (`stemX`, `stemStartY`, `stemEndY`). It is used by both the single-note path and the post-processing pass of `drawBeams()`.
+- **PDF: `drawBeams()` owns stem rendering.** The routine now draws stems itself, in three situations: 1) A single beamable note that is not part of a group, 2) A beamable note that was not absorbed into a group (e.g. an isolated eighth note surrounded by quarter notes), 3) Notes inside a beam group, after the beam slope alignment has been applied.
 
 ### Notes
 
-- The **`MusicXMLToMidi`** class is the mirror of `MidiToMusicXML`, but the
-  two are intentionally independent: neither imports the other, and either
-  can be used in isolation. Round-trip fidelity is best-effort — dynamics,
-  lyrics, and percussion mapping are recovered, but MusicXML features that
-  have no MIDI representation (layout, engraving, stem direction, chord
-  symbols, articulations) are not preserved across a round-trip.
-- The **PDF stem/beam fix** is scoped to `MusicXMLPDFRenderer`.
-  `MusicXMLSVGRenderer` already draws beamed stems in a single pass and is
-  unaffected. Existing scores that already rendered correctly are visually
-  unchanged, apart from the removal of the stray stem overhang.
-- The `convert()` JSDoc for `MusicXMLToMidi` still advertises `ppq=480` and
-  `includeLyrics=false`; the runtime defaults are `ppq=512` and
-  `includeLyrics=true` (chosen for round-trip). The discrepancy will be
-  corrected in a follow-up documentation pass.
+- The **`MusicXMLToMidi`** class is the mirror of `MidiToMusicXML`, but the two are intentionally independent: neither imports the other, and either can be used in isolation. Round-trip fidelity is best-effort — dynamics, lyrics, and percussion mapping are recovered, but MusicXML features that have no MIDI representation (layout, engraving, stem direction, chord symbols, articulations) are not preserved across a round-trip.
+- The **beam/stem fixes** touch both renderers. In `MusicXMLPDFRenderer`, the fix is scoped to the deferred stem pipeline (`drawNoteColumn()`, `drawStemForStem()`, `drawBeams()`). In `MusicXMLSVGRenderer`, the fix is scoped to `renderBeamGroup()` and the return value of `drawNoteColumn()`. Existing scores that already rendered correctly are visually unchanged, apart from the removal of the stray stem overhang and the corrected beam geometry on extreme-pitch runs.
+- The `convert()` JSDoc for `MusicXMLToMidi` still advertises `ppq=480` and `includeLyrics=false`; the runtime defaults are `ppq=512` and `includeLyrics=true` (chosen for round-trip). The discrepancy will be corrected in a follow-up documentation pass.
 
 ## [0.0.2] - 2026-10-20
 
-Second tagged release. Focused on **multi-tempo rendering**, **automatic
-voice separation for overlapping notes**, and a **round of file-name and
-playback-UI correctness fixes** across the converter, both renderers, and
-the composer's export/playback layer.
+Second tagged release. Focused on **multi-tempo rendering**, **automatic voice separation for overlapping notes**, and a **round of file-name and playback-UI correctness fixes** across the converter, both renderers, and the composer's export/playback layer.
 
 ### Added
 
-- **`MidiToMusicXML`: overlap-based staff splitting.** A new option
-  `autoSplitOnOverlap` (default `false`) promotes a channel to two or three
-  staves whenever its notes overlap in time beyond a single voice — for
-  example, a sustained bass note under a moving melody, or a piano part
-  with legato inner voices. The engine separates voices greedily, keeping
-  every chord-group on a single staff and prioritizing higher pitches for
-  the top staff. `overlapToleranceRatio` (default `1/32` of PPQ) controls
-  the legato tolerance so sloppy MIDI timing does not trigger spurious
-  splits.
-- **`MidiToMusicXML`: voice-count estimation.** New public helpers
-  `hasOverlappingNotes()`, `countVoices()`, and `assignNotesToStaves()` on
-  the converter, reusable by hosts that want to display staff-split
-  diagnostics before committing to a conversion.
-- **SVG & PDF: multiple tempo changes per measure.** Both renderers now
-  iterate every `<direction>` that carries a tempo (not just the first one),
-  so MusicXML documents that place more than one `<metronome>` inside the
-  same measure — a common pattern when a MIDI file emits both a redundant
-  120 BPM at tick 0 and a real tempo a few ticks later — render all of them.
-  Overlapping tempo markings are staggered horizontally to avoid visual
-  collisions.
-- **SVG & PDF: `<offset>` support for tempo.** Tempo markings now honor the
-  `<offset>` element inside `<direction>`, positioning each tempo glyph at
-  the correct beat instead of always anchoring it to the start of the
-  measure.
-- **SVG & PDF: beat-unit glyph mapping for tempo.** Tempo markings now
-  choose the correct note glyph (`𝅝`, `𝅗𝅥`, `♩`, `♪`, `𝅘𝅥𝅯`) from
-  `<beat-unit>` and render augmentation dots via `<beat-unit-dot>`. Prior
-  versions always displayed a quarter-note symbol.
-- **`MusicXMLSVGRenderer`: engine-side tempo comments.** The renderer now
-  documents, in the class JSDoc, that tempo is read from **part 0** of the
-  MusicXML — a deliberate convention matching `MidiToMusicXML`'s emission
-  policy.
+- **`MidiToMusicXML`: overlap-based staff splitting.** A new option `autoSplitOnOverlap` (default `false`) promotes a channel to two or three staves whenever its notes overlap in time beyond a single voice — for example, a sustained bass note under a moving melody, or a piano part with legato inner voices. The engine separates voices greedily, keeping every chord-group on a single staff and prioritizing higher pitches for the top staff. `overlapToleranceRatio` (default `1/32` of PPQ) controls the legato tolerance so sloppy MIDI timing does not trigger spurious splits.
+- **`MidiToMusicXML`: voice-count estimation.** New public helpers `hasOverlappingNotes()`, `countVoices()`, and `assignNotesToStaves()` on the converter, reusable by hosts that want to display staff-split diagnostics before committing to a conversion.
+- **SVG & PDF: multiple tempo changes per measure.** Both renderers now iterate every `<direction>` that carries a tempo (not just the first one), so MusicXML documents that place more than one `<metronome>` inside the same measure — a common pattern when a MIDI file emits both a redundant 120 BPM at tick 0 and a real tempo a few ticks later — render all of them. Overlapping tempo markings are staggered horizontally to avoid visual collisions.
+- **SVG & PDF: `<offset>` support for tempo.** Tempo markings now honor the `<offset>` element inside `<direction>`, positioning each tempo glyph at the correct beat instead of always anchoring it to the start of the measure.
+- **SVG & PDF: beat-unit glyph mapping for tempo.** Tempo markings now choose the correct note glyph (`𝅝`, `𝅗𝅥`, `♩`, `♪`, `𝅘𝅥𝅯`) from `<beat-unit>` and render augmentation dots via `<beat-unit-dot>`. Prior versions always displayed a quarter-note symbol.
+- **`MusicXMLSVGRenderer`: engine-side tempo comments.** The renderer now documents, in the class JSDoc, that tempo is read from **part 0** of the MusicXML — a deliberate convention matching `MidiToMusicXML`'s emission policy.
 
 ### Fixed
 
-- **`MidiParser`: notes lost when adjacent notes share a boundary tick.**
-  When two consecutive notes on the same channel and pitch shared a tick
-  (note A's Note-Off tick exactly matches note B's Note-On tick), the
-  parser's `activeNotes` map (keyed only by `channel_pitch`) overwrote
-  note A with note B before note A's Note-Off was processed, causing note A
-  to be permanently dropped. The map now stores an array of active notes per
-  key, and incoming Note-Off events consume them in FIFO order (`shift()`),
-  preserving both overlapping and perfectly adjacent notes.
-- **`MidiToMusicXML`: tie continuation lost its target staff.** When a note
-  was tied across a barline, the continuation re-derived the staff from the
-  pitch instead of inheriting the staff used by the tie's starting note.
-  After enabling staff splits, this caused the second half of a tie to jump
-  to a different staff mid-phrase. The staff is now stored alongside the
-  tie in `tieContinue` and reused verbatim.
-- **`MidiToMusicXML`: `tieInfo` was referenced outside its scope.** The
-  fallback path for placing a note without an assigned staff referenced a
-  `tieInfo` variable that only existed inside the tie-continuation block,
-  producing a `ReferenceError` during conversion when `autoSplitOnOverlap`
-  was enabled. The fallback now delegates to `determineStaffForNote()`.
-- **`MidiToMusicXML`: `autoSplitOnOverlap` never actually ran.** The option
-  was declared with a default of `false`, and the overlap-detection block
-  was nested inside `if (opts.autoSplit)` — so overlap-based splits were
-  silently skipped even when the caller explicitly enabled the feature. The
-  two code paths are now independent.
-- **`MidiToMusicXML`: chord tones split across staves.** The staff
-  assignment algorithm grouped notes by onset tick before deciding a staff,
-  but the pre-computed `channelNoteStaffMap` was never populated, so every
-  note fell back to the range-based `determineStaffForNote()`. Chord tones
-  could therefore land on different staves. The map is now populated with
-  the output of `assignNotesToStaves()`, which keeps every chord-group
-  together.
-- **SVG & PDF: tempo changes in the middle of a system were dropped.** The
-  PDF renderer emitted tempo markings inside the `isSystemStart` block, so
-  any tempo change that fell on a measure that was not the first of its
-  system was ignored. Tempo rendering has been moved into the per-measure
-  loop, and both renderers now check every measure.
-- **SVG & PDF: only the first tempo in a measure was rendered.**
-  `querySelector("metronome")` returns a single node. Both renderers now use
-  `querySelectorAll("direction")` and read every tempo-bearing direction.
-- **Composer: song could not be replayed after it ended.** The `onEnded`
-  handler called `player.stop()` *after* the player had already stopped
-  itself, which reset the player into a state that rejected the next
-  `load()` call. The result was that the Play button did nothing until the
-  user pressed Stop first. The `stop()` call has been removed from
-  `onEnded`, and the Play handler now reloads the MIDI explicitly before
-  playback when the previous playback ended naturally.
-- **Composer: Play handler was Promise-unsafe.** `player.load(...).then(...)`
-  assumed `load()` always returned a Promise. On player implementations
-  where `load()` is synchronous, `.then` was either missing or called on
-  `undefined`, silently breaking replay. The handler now detects whether
-  `load()` returned a thenable and falls back to a `setTimeout(..., 0)`
-  when it did not.
-- **Composer: `sanitizeFileName` was defined twice.** Two definitions
-  existed in the same file, with different behaviors. The second one
-  (hoisted) silently won, leaving the first as dead code. The duplicate has
-  been removed.
-- **Composer: `sanitizeFileName` could return an empty string.** Inputs
-  consisting entirely of illegal characters (e.g. `":::"`) produced an
-  empty result, causing downloads named `.zip`, `.musicxml`, and
-  `.pdf` — hidden files on Linux and macOS. The helper now returns
-  `"Untitled"` when the cleaned result would be empty.
-- **Composer: MusicXML, DAWProject, and individual-PDF exports bypassed
-  sanitization.** The XML and DAWProject download links, and the per-track
-  `trackName` segment of individual PDF filenames, were not passed through
-  `sanitizeFileName`. A track named `"Piano/Bass"` could therefore create
-  nested folders once the exported files were zipped by the user. All
-  download filenames and ZIP entries now go through the shared sanitizer.
-- **Composer: PDF song-title input was ignored.** The `pdf-song-title` field
-  in the export modal was populated on open but never read on submit; the
-  download filename fell back to `currentTrackName`. The submit handler now
-  reads the modal's value first.
+- **`MidiParser`: notes lost when adjacent notes share a boundary tick.** When two consecutive notes on the same channel and pitch shared a tick (note A's Note-Off tick exactly matches note B's Note-On tick), the parser's `activeNotes` map (keyed only by `channel_pitch`) overwrote note A with note B before note A's Note-Off was processed, causing note A to be permanently dropped. The map now stores an array of active notes per key, and incoming Note-Off events consume them in FIFO order (`shift()`), preserving both overlapping and perfectly adjacent notes.
+- **`MidiToMusicXML`: tie continuation lost its target staff.** When a note was tied across a barline, the continuation re-derived the staff from the pitch instead of inheriting the staff used by the tie's starting note. After enabling staff splits, this caused the second half of a tie to jump to a different staff mid-phrase. The staff is now stored alongside the tie in `tieContinue` and reused verbatim.
+- **`MidiToMusicXML`: `tieInfo` was referenced outside its scope.** The fallback path for placing a note without an assigned staff referenced a `tieInfo` variable that only existed inside the tie-continuation block, producing a `ReferenceError` during conversion when `autoSplitOnOverlap` was enabled. The fallback now delegates to `determineStaffForNote()`.
+- **`MidiToMusicXML`: `autoSplitOnOverlap` never actually ran.** The option was declared with a default of `false`, and the overlap-detection block was nested inside `if (opts.autoSplit)` — so overlap-based splits were silently skipped even when the caller explicitly enabled the feature. The two code paths are now independent.
+- **`MidiToMusicXML`: chord tones split across staves.** The staff assignment algorithm grouped notes by onset tick before deciding a staff, but the pre-computed `channelNoteStaffMap` was never populated, so every note fell back to the range-based `determineStaffForNote()`. Chord tones could therefore land on different staves. The map is now populated with the output of `assignNotesToStaves()`, which keeps every chord-group together.
+- **SVG & PDF: tempo changes in the middle of a system were dropped.** The PDF renderer emitted tempo markings inside the `isSystemStart` block, so any tempo change that fell on a measure that was not the first of its system was ignored. Tempo rendering has been moved into the per-measure loop, and both renderers now check every measure.
+- **SVG & PDF: only the first tempo in a measure was rendered.** `querySelector("metronome")` returns a single node. Both renderers now use `querySelectorAll("direction")` and read every tempo-bearing direction.
+- **Composer: song could not be replayed after it ended.** The `onEnded` handler called `player.stop()` *after* the player had already stopped itself, which reset the player into a state that rejected the next `load()` call. The result was that the Play button did nothing until the user pressed Stop first. The `stop()` call has been removed from `onEnded`, and the Play handler now reloads the MIDI explicitly before playback when the previous playback ended naturally.
+- **Composer: Play handler was Promise-unsafe.** `player.load(...).then(...)` assumed `load()` always returned a Promise. On player implementations where `load()` is synchronous, `.then` was either missing or called on `undefined`, silently breaking replay. The handler now detects whether `load()` returned a thenable and falls back to a `setTimeout(..., 0)` when it did not.
+- **Composer: `sanitizeFileName` was defined twice.** Two definitions existed in the same file, with different behaviors. The second one (hoisted) silently won, leaving the first as dead code. The duplicate has been removed.
+- **Composer: `sanitizeFileName` could return an empty string.** Inputs consisting entirely of illegal characters (e.g. `":::"`) produced an empty result, causing downloads named `.zip`, `.musicxml`, and `.pdf` — hidden files on Linux and macOS. The helper now returns `"Untitled"` when the cleaned result would be empty.
+- **Composer: MusicXML, DAWProject, and individual-PDF exports bypassed sanitization.** The XML and DAWProject download links, and the per-track `trackName` segment of individual PDF filenames, were not passed through `sanitizeFileName`. A track named `"Piano/Bass"` could therefore create nested folders once the exported files were zipped by the user. All download filenames and ZIP entries now go through the shared sanitizer.
+- **Composer: PDF song-title input was ignored.** The `pdf-song-title` field in the export modal was populated on open but never read on submit; the download filename fell back to `currentTrackName`. The submit handler now reads the modal's value first.
 
 ### Changed
 
-- **`MidiToMusicXML`: conversion pipeline refactor.** `convert()` handles MIDI
-  parsing and conversion-option preparation, then delegates MusicXML
-  serialization to `convertParsed()`. The public entry point remains
-  `convert()`; no separate `render()` API was added.
-- **`MusicXMLSVGRenderer`: render pipeline refactor.** `render(xmlText)` now
-  coordinates dedicated helpers for initialization, MusicXML parsing and
-  validation, layout and staff setup, measure drawing, and finalization. The
-  public `render(xmlText)` API remains unchanged.
-- **PDF: tempo rendering location.** The tempo-marking block has been
-  relocated out of the system-start branch into the per-measure rendering
-  pass. This is a behavioral change for scores whose tempo changes fall on
-  non-system-start measures: those markings now render (previously they did
-  not).
-- **`MusicXMLSVGRenderer`: JSDoc coverage.** The constructor documentation
-  now describes every supported option, including the comment-overlay
-  system, `midiTrackIdByPartIndex` mapping, stem-direction override, and
-  auto-clef controls.
-- **`MusicXMLPDFRenderer`: JSDoc coverage.** The constructor documentation
-  now describes the complete option surface, including `scale`, per-side
-  margins, measure-width controls, page-number styling, and the
-  `liricYOffset` spelling caveat.
-- **`MidiToMusicXML`: JSDoc coverage.** `convert()` now documents the full
-  six-stage pipeline, every public option (metadata, track/channel
-  selection, transposition, parsing, snapping, staff splitting, layout, and
-  lyrics), and includes a runnable example.
+- **`MidiToMusicXML`: conversion pipeline refactor.** `convert()` handles MIDI parsing and conversion-option preparation, then delegates MusicXML serialization to `convertParsed()`. The public entry point remains `convert()`; no separate `render()` API was added.
+- **`MusicXMLSVGRenderer`: render pipeline refactor.** `render(xmlText)` now coordinates dedicated helpers for initialization, MusicXML parsing and validation, layout and staff setup, measure drawing, and finalization. The public `render(xmlText)` API remains unchanged.
+- **PDF: tempo rendering location.** The tempo-marking block has been relocated out of the system-start branch into the per-measure rendering pass. This is a behavioral change for scores whose tempo changes fall on non-system-start measures: those markings now render (previously they did not).
+- **`MusicXMLSVGRenderer`: JSDoc coverage.** The constructor documentation now describes every supported option, including the comment-overlay system, `midiTrackIdByPartIndex` mapping, stem-direction override, and auto-clef controls.
+- **`MusicXMLPDFRenderer`: JSDoc coverage.** The constructor documentation now describes the complete option surface, including `scale`, per-side margins, measure-width controls, page-number styling, and the `liricYOffset` spelling caveat.
+- **`MidiToMusicXML`: JSDoc coverage.** `convert()` now documents the full six-stage pipeline, every public option (metadata, track/channel selection, transposition, parsing, snapping, staff splitting, layout, and lyrics), and includes a runnable example.
 
 ### Notes
 
-- The **overlap-based split** feature is opt-in. To enable it, pass
-  `autoSplitOnOverlap: true` to `MidiToMusicXML.convert()`. It is
-  independent of the existing `autoSplit` (range-based) option; both can
-  be enabled at once, and the larger of the two staff counts wins.
-- The **multiple-tempo-per-measure** rendering affects the visual output
-  only when the MusicXML source actually contains more than one tempo
-  direction in the same measure. Scores produced by `MidiToMusicXML` from
-  a well-formed MIDI file will not normally contain such duplicates; the
-  fix is primarily for third-party MusicXML, hand-edited scores, and MIDI
-  files with redundant initial tempo events.
-- The `liricYOffset` option name (with the misspelling) is preserved for
-  backward compatibility with existing callers. New code should prefer
-  `lyricYOffset`, which will be added in a future release as an alias.
+- The **overlap-based split** feature is opt-in. To enable it, pass `autoSplitOnOverlap: true` to `MidiToMusicXML.convert()`. It is independent of the existing `autoSplit` (range-based) option; both can be enabled at once, and the larger of the two staff counts wins.
+- The **multiple-tempo-per-measure** rendering affects the visual output only when the MusicXML source actually contains more than one tempo direction in the same measure. Scores produced by `MidiToMusicXML` from a well-formed MIDI file will not normally contain such duplicates; the fix is primarily for third-party MusicXML, hand-edited scores, and MIDI files with redundant initial tempo events.
+- The `liricYOffset` option name (with the misspelling) is preserved for backward compatibility with existing callers. New code should prefer `lyricYOffset`, which will be added in a future release as an alias.
 
 ## [0.0.1] - 2026-10-01
 
