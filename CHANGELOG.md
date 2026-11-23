@@ -4,6 +4,12 @@ All notable changes to PlanetScore are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.4] - 2026-11-23
+
+### Changed
+
+- **SVG & PDF: Note flag count and spacing.** `drawStemFlag()` now accepts a flag count instead of only a double-flag boolean. Eighth notes render with one flag, sixteenth notes with two flags, and thirty-second notes with up to three flags. The spacing between flags is reduced for a more compact engraving and to keep additional flags away from the notehead.
+
 ## [0.0.3] - 2026-10-21
 
 Feature-and-fix release. Adds the **`MusicXMLToMidi`** converter — the missing counterpart to `MidiToMusicXML` — enabling a full MIDI → MusicXML → MIDI round-trip, and fixes beam/stem regressions in both the SVG and PDF renderers where extreme pitch gaps or deferred stem drawing caused stems to become too short or pierce through the beam.
