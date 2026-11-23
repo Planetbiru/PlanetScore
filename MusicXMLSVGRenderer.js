@@ -2795,7 +2795,10 @@ class MusicXMLSVGRenderer {
             this.svg.appendChild(stemLine);
 
             if (isBeamable) {
-                flagElement = this.drawStemFlag(stemX, stemEndY, stemDown, firstNoteType === "16th" || firstNoteType === "32nd");
+                const flagCount = firstNoteType === "32nd" ? 3
+                    : firstNoteType === "16th" ? 2
+                    : 1;
+                flagElement = this.drawStemFlag(stemX, stemEndY, stemDown, flagCount);
             }
         }
 
@@ -3232,9 +3235,9 @@ class MusicXMLSVGRenderer {
      * @param {number} x - The X coordinate of the stem.
      * @param {number} y - The Y coordinate of the end of the stem.
      * @param {boolean} isDown - True if the stem is pointing down.
-     * @param {boolean} isDouble - True if a double flag is needed (16th or 32nd).
+     * @param {number} flagCount - Number of flags to draw (maximum 3).
      */
-    drawStemFlag(x, y, isDown, isDouble) {
+    drawStemFlag(x, y, isDown, flagCount = 1) {
         const scale = this.zoom || 1.0;
         const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
         group.classList.add("note-flag");
@@ -3251,13 +3254,14 @@ class MusicXMLSVGRenderer {
         p1.setAttribute("fill", this.engraverColor);
         group.appendChild(p1);
 
-        if (isDouble) {
-            const yOffset = (isDown ? -8.5 : 8.5) * scale;
-            const p2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            p2.setAttribute("d", path);
-            p2.setAttribute("transform", `translate(${x}, ${y + yOffset}) scale(${sx}, ${sy})`);
-            p2.setAttribute("fill", this.engraverColor);
-            group.appendChild(p2);
+        const count = Math.max(1, Math.min(3, Math.round(flagCount)));
+        for (let i = 1; i < count; i++) {
+            const yOffset = (isDown ? -5.5 : 5.5) * i * scale;
+            const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            p.setAttribute("d", path);
+            p.setAttribute("transform", `translate(${x}, ${y + yOffset}) scale(${sx}, ${sy})`);
+            p.setAttribute("fill", this.engraverColor);
+            group.appendChild(p);
         }
 
         this.svg.appendChild(group);

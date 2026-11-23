@@ -1840,8 +1840,10 @@ class MusicXMLPDFRenderer {
      */
     drawFlagForStem(s) {
         if (!s.isBeamable) return;
-        const isDouble = s.type === "16th" || s.type === "32nd";
-        this.drawStemFlag(s.stemX, s.stemEndY, s.stemDown, isDouble);
+        const flagCount = s.type === "32nd" ? 3
+            : s.type === "16th" ? 2
+            : 1;
+        this.drawStemFlag(s.stemX, s.stemEndY, s.stemDown, flagCount);
     }
 
     /**
@@ -2046,10 +2048,10 @@ class MusicXMLPDFRenderer {
      * @param {number} x X-position of the flag anchor.
      * @param {number} y Y-position of the flag anchor.
      * @param {boolean} isDown Whether the stem is oriented downward.
-     * @param {boolean} isDouble Whether a double flag should be rendered.
+     * @param {number} flagCount Number of flags to render (maximum 3).
      * @returns {void}
      */
-    drawStemFlag(x, y, isDown, isDouble) {
+    drawStemFlag(x, y, isDown, flagCount = 1) {
         const scale = this.GLOBAL_SCALE ?? 1.0;
         const flagPathUp = "M -0.112 3.631 C -0.112 0 -0.3031 0 0 0 C 0.28 0.1911 0 0 0 0 C 0.42 0.6879 0.512 0.7834 0.531 0.898 C 1.4 2.8 1.4 2.8 2.327 4.051 C 4.028 5.943 4.525 7.071 4.525 8.581 C 4.506 9.994 3.263 13.014 2.996 12.899 C 3.378 11.829 3.913 10.682 4.047 9.727 C 4.219 8.561 3.741 6.879 1.831 5.16 C 0.779 4.294 0 4.2 -0.112 3.631 Z";
         const flagPathDown = "M -0.112 -3.631 C -0.112 0 -0.3031 0 0 0 C 0.28 -0.1911 0 0 0 0 C 0.42 -0.6879 0.512 -0.7834 0.531 -0.898 C 1.4 -2.8 1.4 -2.8 2.327 -4.051 C 4.028 -5.943 4.525 -7.071 4.525 -8.581 C 4.506 -9.994 3.263 -13.014 2.996 -12.899 C 3.378 -11.829 3.913 -10.682 4.047 -9.727 C 4.219 -8.561 3.741 -6.879 1.831 -5.16 C 0.779 -4.294 0 -4.2 -0.112 -3.631 Z";
@@ -2063,8 +2065,9 @@ class MusicXMLPDFRenderer {
 
         this.drawSVGPath(path, x, y, sx, sy, true);
 
-        if (isDouble) {
-            const yOffset = (isDown ? -8 : 8) * scale;
+        const count = Math.max(1, Math.min(3, Math.round(flagCount)));
+        for (let i = 1; i < count; i++) {
+            const yOffset = (isDown ? -5.5 : 5.5) * i * scale;
             this.drawSVGPath(path, x, y + yOffset, sx, sy, true);
         }
     }
